@@ -10,12 +10,10 @@ Processes coordinate files to:
 4. Generate FSL-compatible timing files
 
 Usage:
-    python run_pipeline.py                    # Use default config
-    python run_pipeline.py --data-dir /path   # Override data directory
-    python run_pipeline.py --debug            # Save intermediate files
-    python run_pipeline.py --help             # Show all options
-
-Author: [Your Name]
+    python run_ymaze_analysis.py                          # Use default paths (./data, ./output)
+    python run_ymaze_analysis.py --data-dir /path         # Override data directory
+    python run_ymaze_analysis.py --debug                  # Save intermediate files
+    python run_ymaze_analysis.py --help                   # Show all options
 """
 
 import argparse
@@ -364,23 +362,23 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s                          Process with default settings
-  %(prog)s --data-dir /path/to/data Override data directory
-  %(prog)s --debug --verbose        Debug mode with verbose logging
-  %(prog)s --no-plots               Skip trajectory visualizations
+  %(prog)s                              Process using ./data and ./output
+  %(prog)s --data-dir /path/to/data     Override data directory
+  %(prog)s --debug --verbose            Debug mode with verbose logging
+  %(prog)s --no-plots                   Skip trajectory visualizations
         """
     )
     
     parser.add_argument(
         '--data-dir', '-d',
         type=Path,
-        help='Path to data directory (overrides config)'
+        help='Path to data directory (default: ./data)'
     )
     
     parser.add_argument(
         '--output-dir', '-o',
         type=Path,
-        help='Path to output directory (overrides config)'
+        help='Path to output directory (default: ./output)'
     )
     
     parser.add_argument(

@@ -19,16 +19,22 @@ from typing import List, Tuple
 @dataclass
 class PathConfig:
     """File path configuration."""
-    data_dir: Path = Path("/Volumes/YB_Drive/YB/1_data/behavior/")
-    output_dir: Path = Path("/Volumes/YB_Drive/YB/2_analysis/behavior/")
+    data_dir: Path = Path("./data")
+    output_dir: Path = Path("./output")
     
     def validate(self) -> List[str]:
         """Check that required directories exist. Returns list of errors."""
         errors = []
         if not self.data_dir.is_dir():
-            errors.append(f"Data directory not found: {self.data_dir}")
+            errors.append(
+                f"Data directory not found: {self.data_dir.resolve()}\n"
+                f"  Create this folder or specify a different path with --data-dir"
+            )
         if not self.output_dir.is_dir():
-            errors.append(f"Output directory not found: {self.output_dir}")
+            errors.append(
+                f"Output directory not found: {self.output_dir.resolve()}\n"
+                f"  Create this folder or specify a different path with --output-dir"
+            )
         return errors
 
 
