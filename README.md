@@ -32,9 +32,8 @@ your_project/
 │   └── ...
 ├── output/                      ← Results will go here (create this folder)
 └── run_ymaze_analysis.py        ← The analysis script
-
-*Note that you may have other files in each subject folder. More information under "Expected Directory Structure" below.*
 ```
+*Note that you may have other files in each subject folder. More information under "Expected Directory Structure" below.*
 
 ### 2. Run the analysis
 
