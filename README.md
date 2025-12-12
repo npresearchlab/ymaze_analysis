@@ -38,7 +38,7 @@ your_project/
 
 ### 2. Run the analysis
 
-Navigate to your project folder (`your_project`), and type the following into the bash terminal. 
+Navigate to your project folder, and type the following into the bash terminal. 
 
 ```bash
 # If your data is in ./data and you want output in ./output:
