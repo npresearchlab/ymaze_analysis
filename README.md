@@ -1,6 +1,6 @@
 # Y-Maze Behavioral Analysis Pipeline
 
-A Python pipeline for processing Y-Maze behavioral data from Unity experiments.
+A Python pipeline for processing desktop Y-Maze behavioral data.
 
 ## Overview
 
@@ -32,9 +32,13 @@ your_project/
 │   └── ...
 ├── output/                      ← Results will go here (create this folder)
 └── run_ymaze_analysis.py        ← The analysis script
+
+*Note that you may have other files in each subject folder. More information under "Expected Directory Structure" below.*
 ```
 
 ### 2. Run the analysis
+
+Navigate to your project folder (`your_project`), and type the following into the bash terminal. 
 
 ```bash
 # If your data is in ./data and you want output in ./output:
@@ -68,7 +72,7 @@ data/
 └── ...
 ```
 
-Note: you may also have other y-maze files in the subject folders — this pipeline will ignore them, as long as they don't have the keyword "Coordinates" in them. For example, the following folder will work properly in this analysis pipeline:
+Note: this pipeline will ignore other files in subject folders, if there are any, as long as they do not contain the keyword "Coordinates." For example, the following folder will work properly in this analysis pipeline:
 
 ```
 NAV066/
