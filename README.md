@@ -72,7 +72,7 @@ data/
 └── ...
 ```
 
-Note: this pipeline will ignore other files in subject folders, if there are any, as long as they do not contain the keyword "Coordinates." For example, the following folder will work properly in this analysis pipeline:
+Note: The pipeline only processes files with "Coordinates" in the filename — all other files are ignored. For example:
 
 ```
 NAV066/
