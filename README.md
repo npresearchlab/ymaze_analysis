@@ -33,6 +33,7 @@ your_project/
 ├── output/                      ← Results will go here (create this folder)
 └── run_ymaze_analysis.py        ← The analysis script
 ```
+**Note:** The pipeline only processes files with "Coordinates" in the filename — all other files in participant directories are ignored. See [Expected Directory Structure](#expected-directory-structure) for details.
 
 ### 2. Run the analysis
 
@@ -76,7 +77,7 @@ NAV066/
 ├── NAV066S_Coordinates.csv   ← Scanner run
 ```
 
-Note: The pipeline only processes files with "Coordinates" in the filename — all other files are ignored:
+**Note:** The pipeline only processes files with "Coordinates" in the filename — all other files are ignored:
 
 ```
 NAV066/
