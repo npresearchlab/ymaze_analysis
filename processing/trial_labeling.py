@@ -74,7 +74,10 @@ class TrialLabeler:
         First pass: Label teleportations as 'np#' or 'p'.
         
         - Non-probe trials get numbered labels (np1, np2, ...)
-        - Last teleport in each environment is probe ('p')
+        - Probe trials are identified by teleporting to a DIFFERENT destination
+          than the other trials in that environment
+        - If all teleports go to the same destination, the environment is
+          incomplete and all teleports are labeled as non-probe
         """
         df = df.copy()
         df['teleport_type'] = pd.NA
@@ -87,6 +90,10 @@ class TrialLabeler:
         first_env = True
         
         for env in environments:
+            # Skip transition periods
+            if env == 'transition':
+                continue
+                
             # Get teleportation rows for this environment
             env_mask = (df[self.columns.environment] == env) & (df['is_teleport'] == True)
             env_teleports = df[env_mask]
@@ -95,14 +102,37 @@ class TrialLabeler:
                 first_env = False
                 continue
             
+            # Get destinations for each teleport (rounded to avoid float comparison issues)
+            destinations = []
+            for idx in env_teleports.index:
+                dest = (round(df.loc[idx, self.columns.x], 0), 
+                       round(df.loc[idx, self.columns.z], 0))
+                destinations.append((idx, dest))
+            
+            # Determine if last teleport is a probe (different destination)
+            last_idx, last_dest = destinations[-1]
+            other_dests = [d for _, d in destinations[:-1]]
+            
+            # Check if last destination differs from the others
+            is_probe = False
+            if other_dests:
+                from collections import Counter
+                dest_counts = Counter(other_dests)
+                majority_dest = dest_counts.most_common(1)[0][0]
+                is_probe = (last_dest != majority_dest)
+            
+            if not is_probe:
+                logger.warning(
+                    f"Environment '{env}' appears incomplete: last teleport "
+                    f"goes to same destination as NP trials ({last_dest})"
+                )
+            
             # Counter: start at 2 for first env (np1 used for first row), 1 otherwise
             np_counter = 2 if first_env else 1
             
-            last_teleport_idx = env_teleports.index[-1]
-            
-            for idx in env_teleports.index:
-                if idx == last_teleport_idx:
-                    # Last teleportation in environment = probe
+            for idx, dest in destinations:
+                if idx == last_idx and is_probe:
+                    # Last teleportation with different destination = probe
                     df.loc[idx, 'teleport_type'] = 'p'
                 else:
                     # Non-probe teleportation
@@ -279,10 +309,27 @@ class TrialLabeler:
         return df, removed_count
     
     def _ensure_final_pend(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Ensure the last row has 'pend' label."""
+        """
+        Ensure the last row has appropriate end label.
+        
+        Only adds 'pend' if the last environment completed with a probe.
+        Otherwise adds the appropriate 'np#end' label.
+        """
         df = df.copy()
-        if len(df) > 0:
-            df.loc[df.index[-1], 'teleport_type'] = 'pend'
+        if len(df) == 0:
+            return df
+        
+        # Find the last teleport to determine what end label to use
+        teleport_rows = df[df['is_teleport'] == True]
+        
+        if len(teleport_rows) > 0:
+            last_teleport_idx = teleport_rows.index[-1]
+            last_teleport_type = df.loc[last_teleport_idx, 'teleport_type']
+            
+            if pd.notna(last_teleport_type):
+                # Add the appropriate end label
+                df.loc[df.index[-1], 'teleport_type'] = f'{last_teleport_type}end'
+        
         return df
     
     def _compute_summary(self, df: pd.DataFrame, environments: np.ndarray) -> LabelingSummary:

@@ -43,6 +43,192 @@ def clean_column_names(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def fix_transition_labels(
+    df: pd.DataFrame,
+    columns: ColumnNames = CONFIG.columns,
+    transition_label: str = "transition"
+) -> pd.DataFrame:
+    """
+    Mark mislabeled environment transition periods.
+    
+    The Y-maze task switches the environment label during the inter-trial
+    pause (black screen), before the participant is actually teleported
+    to the new environment. This function detects these transition periods
+    and marks them in a new 'is_transition' column, while also correcting
+    the Environment column.
+    
+    Detection logic:
+    - Environment label changes in CSV
+    - Position is frozen (same as previous row)
+    - Position is NOT at a starting location
+    - Continues until a teleport occurs (large position change)
+    
+    The function creates two changes:
+    1. Adds 'is_transition' column (True/False)
+    2. For transition rows, replaces Environment with the PREVIOUS environment
+       (since the participant is still seeing that environment during the pause)
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Coordinate data with Environment column
+    columns : ColumnNames
+        Column name configuration
+    transition_label : str
+        Not used in current implementation (kept for API compatibility)
+        
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with 'is_transition' column and corrected Environment labels
+    """
+    import numpy as np
+    
+    df = df.copy()
+    
+    env_col = columns.environment
+    x_col = columns.x
+    z_col = columns.z
+    
+    # Auto-detect start positions from teleport destinations
+    start_positions = _detect_start_positions(df, columns)
+    position_tolerance = 2.0  # How close to be considered "at start"
+    
+    # Initialize transition column
+    df['is_transition'] = False
+    
+    # Track which rows need relabeling
+    in_transition = False
+    transition_indices = []
+    last_real_env = df.iloc[0][env_col]  # Track the actual environment
+    
+    for i in range(1, len(df)):
+        current_env = df.iloc[i][env_col]
+        prev_env = df.iloc[i-1][env_col]
+        
+        current_x = df.iloc[i][x_col]
+        current_z = df.iloc[i][z_col]
+        prev_x = df.iloc[i-1][x_col]
+        prev_z = df.iloc[i-1][z_col]
+        
+        # Calculate distance from previous position
+        distance = np.sqrt((current_x - prev_x)**2 + (current_z - prev_z)**2)
+        
+        # Check if at a starting position
+        at_start = any(
+            np.sqrt((current_x - sx)**2 + (current_z - sz)**2) < position_tolerance
+            for sx, sz in start_positions
+        )
+        
+        # Detect start of transition: env changed but position didn't jump to start
+        if current_env != prev_env and not at_start:
+            in_transition = True
+            # Keep the last real environment name
+            last_real_env = prev_env
+        
+        # Detect end of transition: large position change (teleport)
+        if in_transition and distance > 5.0:
+            in_transition = False
+            # Update the last real environment to the new one
+            last_real_env = current_env
+        
+        # Mark transition rows
+        if in_transition:
+            transition_indices.append(i)
+    
+    # Apply the transition marking
+    if transition_indices:
+        df.loc[df.index[transition_indices], 'is_transition'] = True
+        # Don't change Environment label - keep original for trial labeling
+        # The labeled_final.csv will show correct env with is_transition flag
+    
+    return df
+
+
+def _detect_start_positions(
+    df: pd.DataFrame,
+    columns: ColumnNames = CONFIG.columns,
+    distance_threshold: float = 5.0
+) -> list:
+    """
+    Auto-detect teleport start positions from the data.
+    
+    Finds large position jumps (teleports) and identifies the most common
+    destinations as the start positions.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Coordinate data
+    columns : ColumnNames
+        Column name configuration
+    distance_threshold : float
+        Minimum distance to consider a teleport
+        
+    Returns
+    -------
+    list
+        List of (x, z) tuples representing start positions
+    """
+    import numpy as np
+    from collections import Counter
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    x_col = columns.x
+    z_col = columns.z
+    
+    # Calculate distances between consecutive rows
+    x_diff = df[x_col].diff()
+    z_diff = df[z_col].diff()
+    distances = np.sqrt(x_diff**2 + z_diff**2)
+    
+    # Find teleport events (large jumps)
+    teleport_mask = distances >= distance_threshold
+    teleport_indices = df.index[teleport_mask]
+    
+    if len(teleport_indices) == 0:
+        logger.warning("No teleports detected - using default start positions")
+        return [(36.52, 22.0), (0.0, -32.0)]
+    
+    # Get destinations (rounded to avoid float comparison issues)
+    destinations = []
+    for idx in teleport_indices:
+        x = round(df.loc[idx, x_col], 0)
+        z = round(df.loc[idx, z_col], 0)
+        destinations.append((x, z))
+    
+    # Find the most common destinations
+    dest_counts = Counter(destinations)
+    
+    # Get top 2 most common (these should be the two start positions)
+    most_common = dest_counts.most_common(2)
+    
+    if len(most_common) < 2:
+        logger.warning(
+            f"Only found {len(most_common)} unique teleport destination(s). "
+            "Using detected positions plus defaults."
+        )
+        positions = [pos for pos, count in most_common]
+        # Add default if we only found one
+        if len(positions) == 1:
+            if positions[0] != (37.0, 22.0) and positions[0] != (36.52, 22.0):
+                positions.append((36.52, 22.0))
+            else:
+                positions.append((0.0, -32.0))
+        return positions
+    
+    positions = [pos for pos, count in most_common]
+    
+    logger.debug(
+        f"Auto-detected start positions: {positions} "
+        f"(from {len(teleport_indices)} teleports)"
+    )
+    
+    return positions
+
+
 def validate_coordinate_data(
     df: pd.DataFrame, 
     columns: ColumnNames = CONFIG.columns
@@ -98,7 +284,8 @@ def validate_coordinate_data(
 def load_coordinates(
     filepath: Path,
     columns: ColumnNames = CONFIG.columns,
-    validate: bool = True
+    validate: bool = True,
+    fix_transitions: bool = True
 ) -> pd.DataFrame:
     """
     Load and clean coordinate data from CSV file.
@@ -111,6 +298,10 @@ def load_coordinates(
         Expected column name configuration
     validate : bool
         Whether to validate the loaded data
+    fix_transitions : bool
+        Whether to fix mislabeled environment transitions (default: True).
+        The Y-maze task switches environment labels during inter-trial
+        pause before the actual teleport. This corrects those labels.
         
     Returns
     -------
@@ -147,6 +338,10 @@ def load_coordinates(
                 f"Validation failed for {filepath.name}:\n" + 
                 "\n".join(f"  - {e}" for e in errors)
             )
+    
+    # Fix mislabeled transition periods
+    if fix_transitions:
+        df = fix_transition_labels(df, columns)
     
     return df
 

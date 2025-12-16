@@ -33,7 +33,6 @@ your_project/
 ├── output/                      ← Results will go here (create this folder)
 └── run_ymaze_analysis.py        ← The analysis script
 ```
-**Note:** The pipeline only processes files with "Coordinates" in the filename — all other files in participant directories are ignored. See [Expected Directory Structure](#expected-directory-structure) for details.
 
 ### 2. Run the analysis
 
@@ -58,6 +57,25 @@ CSV files with columns (note: original files may have leading spaces):
 - `Z` - Z coordinate
 - `Rotation` - Rotation angle
 
+### Transition Period Handling
+
+The Y-maze task switches environment labels during inter-trial pauses (black screen) *before* the participant is actually teleported to the new environment. The pipeline automatically detects and marks these ~6 second transition periods:
+
+- An `is_transition` column is added to the raw data (`True` during pauses)
+- Environment labels are preserved for correct trial attribution
+- This ensures probe trials are correctly assigned to their actual environment
+
+### Probe Trial Detection
+
+Probe trials are identified by their **destination**, not just position in the sequence:
+
+- NP trials teleport to one position (e.g., 36.52, 22.00)
+- Probe trials teleport to the **opposite** position (e.g., 0.00, -32.00)
+
+**Auto-detection:** The pipeline automatically detects the two start positions by analyzing teleport destinations in the data. This means it works with any maze configuration — no hardcoded coordinates.
+
+If a participant stops mid-environment (incomplete), the last teleport still goes to the NP position — so it's correctly labeled as an NP trial, not a probe. A warning is logged when incomplete environments are detected.
+
 ### Expected Directory Structure
 
 ```
@@ -77,7 +95,7 @@ NAV066/
 ├── NAV066S_Coordinates.csv   ← Scanner run
 ```
 
-**Note:** The pipeline only processes files with "Coordinates" in the filename — all other files are ignored:
+Note: The pipeline only processes files with "Coordinates" in the filename — all other files are ignored:
 
 ```
 NAV066/
@@ -96,12 +114,25 @@ For each subject, the original participant number is preserved (e.g., NAV066 →
 ```
 output/
 └── sub-066/
-    ├── sub-066_labeled_final.csv
-    ├── firstnp.txt
-    ├── lastnp.txt
-    ├── probe.txt
-    ├── rest.txt
-    └── sub-066_trajectory.png
+    ├── sub-066_labeled_final.csv      # Full labeled data with trial_num column
+    │
+    ├── trial_numbers/                  # Raw trial-numbered FSL files
+    │   ├── trial_1.txt                 # All 1st trials across environments
+    │   ├── trial_2.txt
+    │   ├── trial_3.txt
+    │   ├── ...                         # (varies by participant)
+    │   └── rest.txt
+    │
+    ├── labeled_trials/                 # Semantically labeled FSL files
+    │   ├── explore.txt                 # First trial (trial_1)
+    │   ├── cond1.txt                   # Conditioning trial 1
+    │   ├── cond2.txt                   # Conditioning trial 2
+    │   ├── cond3.txt                   # Conditioning trial 3
+    │   ├── preprobe.txt                # Trial before probe
+    │   ├── probe.txt                   # Probe trials
+    │   └── rest.txt
+    │
+    └── sub-066_trajectory.png          # Trajectory visualization
 ```
 
 **Multiple runs (C and S):**
@@ -110,17 +141,49 @@ output/
 └── sub-066/
     ├── sub-066_C_labeled_final.csv
     ├── sub-066_S_labeled_final.csv
-    ├── firstnp_C.txt
-    ├── firstnp_S.txt
-    ├── lastnp_C.txt
-    ├── lastnp_S.txt
-    ├── probe_C.txt
-    ├── probe_S.txt
-    ├── rest_C.txt
-    ├── rest_S.txt
+    │
+    ├── trial_numbers/
+    │   ├── trial_1_C.txt
+    │   ├── trial_1_S.txt
+    │   ├── ... (etc.)
+    │   ├── rest_C.txt
+    │   └── rest_S.txt
+    │
+    ├── labeled_trials/
+    │   ├── explore_C.txt
+    │   ├── explore_S.txt
+    │   ├── ... (etc.)
+    │   ├── rest_C.txt
+    │   └── rest_S.txt
+    │
     ├── sub-066_C_trajectory.png
     └── sub-066_S_trajectory.png
 ```
+
+### Labeled Trials Scheme
+
+The `labeled_trials/` folder maps trial numbers to semantic labels based on position relative to the probe:
+
+| Trial Position | Label | Description |
+|----------------|-------|-------------|
+| trial_1 | explore | First/exploration trial |
+| max - 4 | cond1 | Conditioning trial 1 (skipped if = trial_1) |
+| max - 3 | cond2 | Conditioning trial 2 |
+| max - 2 | cond3 | Conditioning trial 3 |
+| max - 1 | preprobe | Trial immediately before probe |
+| max (last) | probe | Probe trial |
+
+**Note:** Only COMPLETED environments (those with a probe trial) are included in `labeled_trials/`. If a participant stopped mid-environment, those trials are excluded from labeled files but remain in `trial_numbers/`.
+
+**labeled_final.csv columns:**
+| Column | Description |
+|--------|-------------|
+| `env` | Environment name |
+| `trial` | Trial type label (np1, np2, p, etc.) |
+| `trial_num` | Sequential trial number within environment (1, 2, 3...) |
+| `start` | Trial start time (normalized) |
+| `end` | Trial end time |
+| `duration` | Trial duration |
 
 ### FSL Timing Format
 
@@ -187,7 +250,7 @@ behavior_analysis/
 ├── config.py                 # Configuration settings
 ├── run_ymaze_analysis.py     # Main entry point
 │
-├── io/                       # Input/output utilities
+├── data_io/                  # Input/output utilities
 │   ├── __init__.py
 │   ├── loaders.py           # CSV loading & validation
 │   └── writers.py           # Saving results & FSL files
@@ -222,7 +285,7 @@ class TeleportConfig:
 ### Processing a single subject programmatically
 
 ```python
-from io import load_coordinates
+from data_io import load_coordinates
 from processing import detect_teleportations, label_trials, extract_timing
 
 # Load data
@@ -237,5 +300,6 @@ labeled_df, summary = label_trials(teleport_df)
 # Extract timing
 timing = extract_timing(labeled_df)
 
-print(f"Found {len(timing.probe_trials)} probe trials")
+print(f"Found {len(timing.trials)} total trials")
+print(f"Max trial number: {timing.max_trial_num}")
 ```

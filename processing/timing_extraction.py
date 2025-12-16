@@ -10,8 +10,9 @@ Combines functionality from:
 import pandas as pd
 import numpy as np
 from typing import List, Dict, Tuple, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from collections import defaultdict
 import logging
 
 from config import CONFIG, ColumnNames
@@ -24,6 +25,7 @@ class Trial:
     """Represents a single trial with timing information."""
     environment: str
     trial_type: str  # e.g., 'np1', 'np2', 'p'
+    trial_num: int   # Sequential number within environment (1, 2, 3, ...)
     start: float
     end: float
     
@@ -36,10 +38,9 @@ class Trial:
 class TimingData:
     """Complete timing data for a subject."""
     trials: List[Trial]
-    first_np_trials: List[Trial]  # First non-probe before each probe
-    last_np_trials: List[Trial]   # Last non-probe before each probe
-    probe_trials: List[Trial]     # All probe trials
-    last_event_end: float         # For rest period calculation
+    trials_by_num: Dict[int, List[Trial]]  # Grouped by trial_num for FSL output
+    max_trial_num: int  # Highest trial number seen
+    last_event_end: float  # For rest period calculation
     
     def to_dataframe(self) -> pd.DataFrame:
         """Convert trials to DataFrame."""
@@ -47,6 +48,7 @@ class TimingData:
             {
                 'env': t.environment,
                 'trial': t.trial_type,
+                'trial_num': t.trial_num,
                 'start': t.start,
                 'end': t.end,
                 'duration': t.duration
@@ -73,7 +75,7 @@ class TimestampExtractor:
     -------
     >>> extractor = TimestampExtractor()
     >>> timing_data = extractor.extract(labeled_df)
-    >>> print(f"Found {len(timing_data.probe_trials)} probe trials")
+    >>> print(f"Found {len(timing_data.trials)} total trials")
     """
     
     def __init__(
@@ -93,12 +95,17 @@ class TimestampExtractor:
         trials = []
         current_trials = {}  # Active trials waiting for end marker
         current_env = None
+        env_trial_counter = {}  # Track trial number per environment
         
         for idx, row in df.iterrows():
             # Track environment
             env = row[self.columns.environment]
             if pd.notna(env):
-                current_env = env
+                if env != current_env:
+                    # New environment - reset counter
+                    current_env = env
+                    if current_env not in env_trial_counter:
+                        env_trial_counter[current_env] = 0
             
             teleport_type = row['teleport_type']
             timestamp = row[self.columns.time]
@@ -120,6 +127,7 @@ class TimestampExtractor:
                     trial = Trial(
                         environment=start_info['env'],
                         trial_type=base_type,
+                        trial_num=start_info['trial_num'],
                         start=start_info['time'],
                         end=timestamp
                     )
@@ -132,10 +140,14 @@ class TimestampExtractor:
                         f"matching start at index {idx}"
                     )
             else:
-                # This is a start marker
+                # This is a start marker - increment trial counter for this env
+                env_trial_counter[current_env] = env_trial_counter.get(current_env, 0) + 1
+                trial_num = env_trial_counter[current_env]
+                
                 current_trials[teleport_type] = {
                     'time': timestamp,
-                    'env': current_env
+                    'env': current_env,
+                    'trial_num': trial_num
                 }
         
         # Warn about unmatched start markers
@@ -157,6 +169,7 @@ class TimestampExtractor:
             Trial(
                 environment=t.environment,
                 trial_type=t.trial_type,
+                trial_num=t.trial_num,
                 start=t.start - min_start,
                 end=t.end - min_start
             )
@@ -167,50 +180,20 @@ class TimestampExtractor:
         """Sort trials by start time."""
         return sorted(trials, key=lambda t: t.start)
     
-    def _categorize_trials(
-        self,
-        trials: List[Trial]
-    ) -> Tuple[List[Trial], List[Trial], List[Trial]]:
+    def _group_by_trial_num(self, trials: List[Trial]) -> Tuple[Dict[int, List[Trial]], int]:
         """
-        Categorize trials into first_np, last_np, and probe lists.
+        Group trials by their trial number for FSL output.
         
-        For FSL timing files, we need:
-        - first_np: First non-probe trial before each probe
-        - last_np: Last non-probe trial before each probe  
-        - probe: All probe trials
+        Returns dict mapping trial_num to list of trials, and max trial num.
         """
-        first_np_trials = []
-        last_np_trials = []
-        probe_trials = []
+        trials_by_num = defaultdict(list)
+        max_num = 0
         
-        # Group by environment
-        env_trials = {}
         for trial in trials:
-            if trial.environment not in env_trials:
-                env_trials[trial.environment] = []
-            env_trials[trial.environment].append(trial)
+            trials_by_num[trial.trial_num].append(trial)
+            max_num = max(max_num, trial.trial_num)
         
-        # Process each environment
-        for env, env_trial_list in env_trials.items():
-            # Sort by start time within environment
-            sorted_trials = sorted(env_trial_list, key=lambda t: t.start)
-            
-            np_trials_before_probe = []
-            
-            for trial in sorted_trials:
-                if trial.trial_type.startswith('np'):
-                    np_trials_before_probe.append(trial)
-                elif trial.trial_type == 'p':
-                    probe_trials.append(trial)
-                    
-                    if np_trials_before_probe:
-                        first_np_trials.append(np_trials_before_probe[0])
-                        last_np_trials.append(np_trials_before_probe[-1])
-                    
-                    # Reset for next probe
-                    np_trials_before_probe = []
-        
-        return first_np_trials, last_np_trials, probe_trials
+        return dict(trials_by_num), max_num
     
     def extract(self, df: pd.DataFrame) -> TimingData:
         """
@@ -242,22 +225,21 @@ class TimestampExtractor:
         if self.normalize_timestamps:
             trials = self._normalize_trials(trials)
         
-        # Categorize for FSL
-        first_np, last_np, probes = self._categorize_trials(trials)
+        # Group by trial number
+        trials_by_num, max_trial_num = self._group_by_trial_num(trials)
         
         # Calculate last event end time
         last_end = max(t.end for t in trials) if trials else 0.0
         
         logger.info(
-            f"Extracted timing for {len(trials)} trials: "
-            f"{len(probes)} probes, {len(first_np)} first_np, {len(last_np)} last_np"
+            f"Extracted timing for {len(trials)} trials "
+            f"(max trial_num: {max_trial_num})"
         )
         
         return TimingData(
             trials=trials,
-            first_np_trials=first_np,
-            last_np_trials=last_np,
-            probe_trials=probes,
+            trials_by_num=trials_by_num,
+            max_trial_num=max_trial_num,
             last_event_end=last_end
         )
 

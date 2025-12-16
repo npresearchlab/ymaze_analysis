@@ -213,31 +213,26 @@ def write_rest_timing_file(
 
 
 def write_all_fsl_timing_files(
-    first_np_trials: List[Dict],
-    last_np_trials: List[Dict],
-    probe_trials: List[Dict],
-    last_event_end: float,
+    timing_data,  # TimingData object
     output_dir: Path,
-    file_names: Optional[Dict[str, str]] = None,
     run_suffix: Optional[str] = None
 ) -> Dict[str, Path]:
     """
-    Write all four FSL timing files for a subject.
+    Write FSL timing files for all trial numbers.
+    
+    Creates two output folders:
+    1. trial_numbers/ - One file per trial number (trial_1.txt, trial_2.txt, etc.)
+    2. labeled_trials/ - Semantically labeled files (explore.txt, cond1.txt, etc.)
+    
+    The labeled_trials folder only includes trials from COMPLETED environments
+    (environments where the participant reached the probe trial).
     
     Parameters
     ----------
-    first_np_trials : List[Dict]
-        First non-probe trials before each probe
-    last_np_trials : List[Dict]
-        Last non-probe trials before each probe
-    probe_trials : List[Dict]
-        Probe trials
-    last_event_end : float
-        End time of the last event (for rest file)
+    timing_data : TimingData
+        Timing data object with trials_by_num dict and trials list
     output_dir : Path
         Directory for output files
-    file_names : Optional[Dict[str, str]]
-        Custom file names. Keys: 'first_np', 'last_np', 'probe', 'rest'
     run_suffix : Optional[str]
         Run identifier (e.g., "C" or "S"). If provided, adds to filenames.
         
@@ -245,56 +240,182 @@ def write_all_fsl_timing_files(
     -------
     Dict[str, Path]
         Dictionary mapping file type to saved path
-        
-    Examples
-    --------
-    >>> write_all_fsl_timing_files(..., run_suffix=None)
-    # Creates: firstnp.txt, lastnp.txt, probe.txt, rest.txt
-    
-    >>> write_all_fsl_timing_files(..., run_suffix="C")
-    # Creates: firstnp_C.txt, lastnp_C.txt, probe_C.txt, rest_C.txt
     """
     output_dir = Path(output_dir)
-    
-    # Default file names
-    names = {
-        'first_np': 'firstnp.txt',
-        'last_np': 'lastnp.txt',
-        'probe': 'probe.txt',
-        'rest': 'rest.txt'
-    }
-    if file_names:
-        names.update(file_names)
-    
-    # Add run suffix to filenames if provided
-    if run_suffix:
-        for key in names:
-            # Insert suffix before .txt extension
-            base = names[key].replace('.txt', '')
-            names[key] = f"{base}_{run_suffix}.txt"
-    
     saved_files = {}
     
-    # Write each timing file
-    saved_files['first_np'] = write_fsl_timing_file(
-        first_np_trials,
-        output_dir / names['first_np']
-    )
+    # Create subfolders
+    trial_numbers_dir = ensure_directory(output_dir / "trial_numbers")
+    labeled_trials_dir = ensure_directory(output_dir / "labeled_trials")
     
-    saved_files['last_np'] = write_fsl_timing_file(
-        last_np_trials,
-        output_dir / names['last_np']
-    )
+    # ========================================
+    # 1. Write trial_numbers files (all trials)
+    # ========================================
+    for trial_num, trials in timing_data.trials_by_num.items():
+        if run_suffix:
+            filename = f"trial_{trial_num}_{run_suffix}.txt"
+        else:
+            filename = f"trial_{trial_num}.txt"
+        
+        trial_dicts = [{'start': t.start, 'duration': t.duration} for t in trials]
+        
+        saved_files[f'trial_{trial_num}'] = write_fsl_timing_file(
+            trial_dicts,
+            trial_numbers_dir / filename
+        )
     
-    saved_files['probe'] = write_fsl_timing_file(
-        probe_trials,
-        output_dir / names['probe']
-    )
+    # Write rest file to trial_numbers
+    if run_suffix:
+        rest_filename = f"rest_{run_suffix}.txt"
+    else:
+        rest_filename = "rest.txt"
     
     saved_files['rest'] = write_rest_timing_file(
-        last_event_end,
-        output_dir / names['rest']
+        timing_data.last_event_end,
+        trial_numbers_dir / rest_filename
     )
+    
+    # ========================================
+    # 2. Write labeled_trials files (completed envs only)
+    # ========================================
+    labeled_files = write_labeled_trial_files(
+        timing_data,
+        labeled_trials_dir,
+        run_suffix
+    )
+    saved_files.update(labeled_files)
+    
+    return saved_files
+
+
+def write_labeled_trial_files(
+    timing_data,  # TimingData object
+    output_dir: Path,
+    run_suffix: Optional[str] = None
+) -> Dict[str, Path]:
+    """
+    Write semantically labeled FSL timing files.
+    
+    Only includes trials from COMPLETED environments (those with probe trials).
+    
+    Labeling scheme (based on trial position relative to probe):
+    - trial_1 → explore.txt (first trial)
+    - max_num → probe.txt (last trial, must be 'p' type)
+    - max_num - 1 → preprobe.txt
+    - max_num - 2 → cond3.txt
+    - max_num - 3 → cond2.txt
+    - max_num - 4 → cond1.txt (unless this is trial_1, then skip)
+    
+    Parameters
+    ----------
+    timing_data : TimingData
+        Timing data object
+    output_dir : Path
+        Directory for labeled trial files
+    run_suffix : Optional[str]
+        Run identifier
+        
+    Returns
+    -------
+    Dict[str, Path]
+        Dictionary mapping label to saved path
+    """
+    from collections import defaultdict
+    
+    output_dir = Path(output_dir)
+    
+    # Group trials by environment
+    env_trials = defaultdict(list)
+    for trial in timing_data.trials:
+        env_trials[trial.environment].append(trial)
+    
+    # Sort trials within each environment by trial_num
+    for env in env_trials:
+        env_trials[env].sort(key=lambda t: t.trial_num)
+    
+    # Identify completed environments (last trial is probe)
+    completed_envs = {}
+    incomplete_envs = []
+    
+    for env, trials in env_trials.items():
+        if trials and trials[-1].trial_type == 'p':
+            completed_envs[env] = trials
+        else:
+            incomplete_envs.append(env)
+    
+    if incomplete_envs:
+        logger.warning(
+            f"Excluding {len(incomplete_envs)} incomplete environments from labeled_trials: "
+            f"{incomplete_envs}"
+        )
+    
+    # Build labeled trial collections
+    # Keys: 'explore', 'cond1', 'cond2', 'cond3', 'preprobe', 'probe'
+    labeled_trials = defaultdict(list)
+    
+    for env, trials in completed_envs.items():
+        max_num = len(trials)  # Since trial_num is 1-indexed and sequential
+        
+        for trial in trials:
+            num = trial.trial_num
+            
+            # Determine label based on position
+            if num == 1:
+                label = 'explore'
+            elif num == max_num:
+                label = 'probe'
+            elif num == max_num - 1:
+                label = 'preprobe'
+            elif num == max_num - 2:
+                label = 'cond3'
+            elif num == max_num - 3:
+                label = 'cond2'
+            elif num == max_num - 4:
+                # Only label as cond1 if it's not trial_1
+                if num != 1:
+                    label = 'cond1'
+                else:
+                    label = 'explore'  # Already handled above, but defensive
+            else:
+                # Trials between explore and cond1 - not included in labeled files
+                continue
+            
+            labeled_trials[label].append(trial)
+    
+    # Write labeled files
+    saved_files = {}
+    
+    label_order = ['explore', 'cond1', 'cond2', 'cond3', 'preprobe', 'probe']
+    
+    for label in label_order:
+        trials = labeled_trials.get(label, [])
+        
+        if not trials:
+            continue
+        
+        if run_suffix:
+            filename = f"{label}_{run_suffix}.txt"
+        else:
+            filename = f"{label}.txt"
+        
+        trial_dicts = [{'start': t.start, 'duration': t.duration} for t in trials]
+        
+        saved_files[f'labeled_{label}'] = write_fsl_timing_file(
+            trial_dicts,
+            output_dir / filename
+        )
+    
+    # Also copy rest file to labeled_trials
+    if timing_data.last_event_end > 0:
+        if run_suffix:
+            rest_filename = f"rest_{run_suffix}.txt"
+        else:
+            rest_filename = "rest.txt"
+        
+        saved_files['labeled_rest'] = write_rest_timing_file(
+            timing_data.last_event_end,
+            output_dir / rest_filename
+        )
     
     return saved_files
 
@@ -313,7 +434,7 @@ class ProcessingReport:
         subject_id: str,
         original_folder: str,
         n_teleports: int,
-        n_probes: int,
+        n_trials: int,
         n_environments: int,
         output_dir: Path
     ):
@@ -322,7 +443,7 @@ class ProcessingReport:
             'subject_id': subject_id,
             'original_folder': original_folder,
             'n_teleports': n_teleports,
-            'n_probes': n_probes,
+            'n_trials': n_trials,
             'n_environments': n_environments,
             'output_dir': str(output_dir)
         })

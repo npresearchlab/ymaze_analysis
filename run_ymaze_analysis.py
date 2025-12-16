@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from config import CONFIG, PipelineConfig, PathConfig
 
-from io import (
+from data_io import (
     load_coordinates,
     find_coordinate_file,
     find_all_coordinate_files,
@@ -46,8 +46,7 @@ from io import (
 from processing import (
     detect_teleportations,
     label_trials,
-    extract_timing,
-    trials_to_dict_list
+    extract_timing
 )
 
 from visualization import (
@@ -210,14 +209,10 @@ def process_subject(
         run_suffix=run_suffix
     )
     
-    # Step 5: Generate FSL timing files
+    # Step 5: Generate FSL timing files (one per trial number)
     fsl_files = write_all_fsl_timing_files(
-        first_np_trials=trials_to_dict_list(timing_data.first_np_trials),
-        last_np_trials=trials_to_dict_list(timing_data.last_np_trials),
-        probe_trials=trials_to_dict_list(timing_data.probe_trials),
-        last_event_end=timing_data.last_event_end,
+        timing_data=timing_data,
         output_dir=subject_output,
-        file_names=config.output.timing_files,
         run_suffix=run_suffix
     )
     
@@ -244,7 +239,8 @@ def process_subject(
         'run_suffix': run_suffix,
         'n_rows': len(df),
         'n_teleports': len(teleport_events),
-        'n_probes': labeling_summary.n_probes,
+        'n_trials': len(timing_data.trials),
+        'max_trial_num': timing_data.max_trial_num,
         'n_environments': labeling_summary.n_environments,
         'output_dir': subject_output,
         'fsl_files': fsl_files
@@ -366,15 +362,15 @@ def run_pipeline(
                     subject_id=f"{results['subject_id']}{run_label}",
                     original_folder=subject_folder.name,
                     n_teleports=results['n_teleports'],
-                    n_probes=results['n_probes'],
+                    n_trials=results['n_trials'],
                     n_environments=results['n_environments'],
                     output_dir=results['output_dir']
                 )
                 
                 logger.info(
                     f"✓ Completed {subject_id}{run_label}: "
-                    f"{results['n_teleports']} teleports, "
-                    f"{results['n_probes']} probes"
+                    f"{results['n_trials']} trials, "
+                    f"{results['max_trial_num']} max trial num"
                 )
                 
             except (DataLoadError, DataValidationError) as e:

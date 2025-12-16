@@ -48,8 +48,8 @@ class TeleportConfig:
     position_tolerance: float = 1.0
     
     # Target positions in the maze: (x, z) coordinates
-    # Position 1: Starting area
-    # Position 2: Alternative starting point
+    # These are used for visualization and as fallback values.
+    # The pipeline auto-detects actual positions from teleport data.
     target_positions: List[Tuple[float, float]] = field(
         default_factory=lambda: [(36.52, 22.0), (0.0, -32.0)]
     )
