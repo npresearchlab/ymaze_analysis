@@ -32,6 +32,7 @@ from config import CONFIG, PipelineConfig, PathConfig
 from io import (
     load_coordinates,
     find_coordinate_file,
+    find_all_coordinate_files,
     discover_subjects,
     save_dataframe,
     save_labeled_data,
@@ -126,26 +127,30 @@ def setup_logging(verbose: bool = False, log_file: Optional[Path] = None):
 
 
 def process_subject(
-    subject_folder: Path,
+    coord_file: Path,
     output_dir: Path,
     subject_id: str,
     config: PipelineConfig,
+    run_suffix: Optional[str] = None,
     save_intermediate: bool = False,
     save_plots: bool = True
 ) -> dict:
     """
-    Process a single subject's data.
+    Process a single coordinate file for a subject.
     
     Parameters
     ----------
-    subject_folder : Path
-        Path to subject's data folder
+    coord_file : Path
+        Path to the coordinate CSV file
     output_dir : Path
         Path for output files
     subject_id : str
-        Subject identifier (e.g., "sub-01")
+        Subject identifier (e.g., "sub-066")
     config : PipelineConfig
         Pipeline configuration
+    run_suffix : Optional[str]
+        Run identifier (e.g., "C" for computer, "S" for scanner).
+        If provided, adds suffix to output filenames.
     save_intermediate : bool
         Whether to save intermediate processing files
     save_plots : bool
@@ -158,12 +163,9 @@ def process_subject(
     """
     logger = logging.getLogger(__name__)
     
-    # Find coordinate file
-    coord_file = find_coordinate_file(subject_folder)
-    if coord_file is None:
-        raise DataLoadError(f"No coordinate file found in {subject_folder}")
-    
-    logger.info(f"Processing {subject_id}: {coord_file.name}")
+    # Build display name for logging
+    run_label = f" (run {run_suffix})" if run_suffix else ""
+    logger.info(f"Processing {subject_id}{run_label}: {coord_file.name}")
     
     # Create output directory
     subject_output = ensure_directory(output_dir / subject_id)
@@ -180,21 +182,33 @@ def process_subject(
         position_tolerance=config.teleport.position_tolerance
     )
     
+    # Build filename prefix based on run_suffix
+    if run_suffix:
+        file_prefix = f"{subject_id}_{run_suffix}"
+    else:
+        file_prefix = subject_id
+    
     if save_intermediate:
-        save_dataframe(teleport_df, subject_output, f"{subject_id}_teleport_detected")
+        save_dataframe(teleport_df, subject_output, f"{file_prefix}_teleport_detected")
     
     # Step 3: Label trials
     labeled_df, labeling_summary = label_trials(teleport_df)
     
     if save_intermediate:
-        save_dataframe(labeled_df, subject_output, f"{subject_id}_trials_labeled")
+        save_dataframe(labeled_df, subject_output, f"{file_prefix}_trials_labeled")
     
     # Step 4: Extract timing
     timing_data = extract_timing(labeled_df, normalize=True)
     
     # Save final labeled data
     timing_df = timing_data.to_dataframe()
-    save_labeled_data(timing_df, subject_output, subject_id, suffix="labeled_final")
+    save_labeled_data(
+        timing_df, 
+        subject_output, 
+        subject_id, 
+        suffix="labeled_final",
+        run_suffix=run_suffix
+    )
     
     # Step 5: Generate FSL timing files
     fsl_files = write_all_fsl_timing_files(
@@ -203,22 +217,31 @@ def process_subject(
         probe_trials=trials_to_dict_list(timing_data.probe_trials),
         last_event_end=timing_data.last_event_end,
         output_dir=subject_output,
-        file_names=config.output.timing_files
+        file_names=config.output.timing_files,
+        run_suffix=run_suffix
     )
     
     # Step 6: Generate visualizations
     if save_plots:
+        if run_suffix:
+            plot_title = f"Trajectory: {subject_id} (run {run_suffix})"
+            plot_filename = f"{subject_id}_{run_suffix}_trajectory.png"
+        else:
+            plot_title = f"Trajectory: {subject_id}"
+            plot_filename = f"{subject_id}_trajectory.png"
+            
         fig, ax = create_trajectory_plot(
             df,
             teleport_events=teleport_events,
             target_positions=config.teleport.target_positions,
-            title=f"Trajectory: {subject_id}",
+            title=plot_title,
             columns=config.columns
         )
-        save_trajectory_plot(fig, subject_output, f"{subject_id}_trajectory.png")
+        save_trajectory_plot(fig, subject_output, plot_filename)
     
     return {
         'subject_id': subject_id,
+        'run_suffix': run_suffix,
         'n_rows': len(df),
         'n_teleports': len(teleport_events),
         'n_probes': labeling_summary.n_probes,
@@ -313,40 +336,58 @@ def run_pipeline(
         logger.info(f"Processing {subject_folder.name} → {subject_id}")
         logger.info(f"{'='*50}")
         
-        try:
-            results = process_subject(
-                subject_folder=subject_folder,
-                output_dir=config.paths.output_dir,
-                subject_id=subject_id,
-                config=config,
-                save_intermediate=save_intermediate,
-                save_plots=save_plots
-            )
-            
-            report.add_subject(
-                subject_id=results['subject_id'],
-                original_folder=subject_folder.name,
-                n_teleports=results['n_teleports'],
-                n_probes=results['n_probes'],
-                n_environments=results['n_environments'],
-                output_dir=results['output_dir']
-            )
-            
-            logger.info(
-                f"✓ Completed {subject_id}: "
-                f"{results['n_teleports']} teleports, "
-                f"{results['n_probes']} probes"
-            )
-            
-        except (DataLoadError, DataValidationError) as e:
-            logger.error(f"✗ Failed to process {subject_folder.name}: {e}")
-            report.add_error(subject_folder.name, str(e))
+        # Find all coordinate files in this subject's folder
+        coord_files = find_all_coordinate_files(subject_folder)
+        
+        if not coord_files:
+            logger.warning(f"No coordinate files found in {subject_folder.name}")
+            report.add_error(subject_folder.name, "No coordinate files found")
             continue
-            
-        except Exception as e:
-            logger.exception(f"✗ Unexpected error processing {subject_folder.name}")
-            report.add_error(subject_folder.name, str(e))
-            continue
+        
+        logger.info(f"Found {len(coord_files)} coordinate file(s)")
+        
+        # Process each coordinate file
+        for coord_file, run_suffix in coord_files:
+            try:
+                results = process_subject(
+                    coord_file=coord_file,
+                    output_dir=config.paths.output_dir,
+                    subject_id=subject_id,
+                    config=config,
+                    run_suffix=run_suffix,
+                    save_intermediate=save_intermediate,
+                    save_plots=save_plots
+                )
+                
+                # Build display label for reporting
+                run_label = f" (run {run_suffix})" if run_suffix else ""
+                
+                report.add_subject(
+                    subject_id=f"{results['subject_id']}{run_label}",
+                    original_folder=subject_folder.name,
+                    n_teleports=results['n_teleports'],
+                    n_probes=results['n_probes'],
+                    n_environments=results['n_environments'],
+                    output_dir=results['output_dir']
+                )
+                
+                logger.info(
+                    f"✓ Completed {subject_id}{run_label}: "
+                    f"{results['n_teleports']} teleports, "
+                    f"{results['n_probes']} probes"
+                )
+                
+            except (DataLoadError, DataValidationError) as e:
+                run_label = f" (run {run_suffix})" if run_suffix else ""
+                logger.error(f"✗ Failed to process {subject_folder.name}{run_label}: {e}")
+                report.add_error(f"{subject_folder.name}{run_label}", str(e))
+                continue
+                
+            except Exception as e:
+                run_label = f" (run {run_suffix})" if run_suffix else ""
+                logger.exception(f"✗ Unexpected error processing {subject_folder.name}{run_label}")
+                report.add_error(f"{subject_folder.name}{run_label}", str(e))
+                continue
     
     # Save report
     report.save(config.paths.output_dir)

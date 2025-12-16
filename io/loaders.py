@@ -9,7 +9,7 @@ Handles:
 
 import pandas as pd
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Tuple
 
 from config import ColumnNames, CONFIG
 
@@ -216,6 +216,68 @@ def find_coordinate_file(directory: Path) -> Optional[Path]:
     
     # Return first match (could be extended to handle multiple)
     return csv_matches[0]
+
+
+def find_all_coordinate_files(directory: Path) -> List[Tuple[Path, Optional[str]]]:
+    """
+    Find all coordinate files in a directory and extract run suffixes.
+    
+    Handles patterns like:
+    - NAV066_Coordinates.csv → (path, None)
+    - NAV066C_Coordinates.csv → (path, "C")  
+    - NAV066S_Coordinates.csv → (path, "S")
+    
+    Parameters
+    ----------
+    directory : Path
+        Directory to search
+        
+    Returns
+    -------
+    List[Tuple[Path, Optional[str]]]
+        List of (filepath, run_suffix) tuples.
+        run_suffix is None if no C/S suffix detected.
+    """
+    import re
+    
+    directory = Path(directory)
+    
+    if not directory.is_dir():
+        return []
+    
+    # Look for files with "Coordinates" in name
+    matches = list(directory.glob("*Coordinates*"))
+    
+    # Filter to only CSV files
+    csv_matches = [f for f in matches if f.suffix.lower() == '.csv']
+    
+    if not csv_matches:
+        return []
+    
+    results = []
+    
+    for filepath in csv_matches:
+        filename = filepath.stem  # e.g., "NAV066C_Coordinates"
+        
+        # Try to extract run suffix (C or S) before "_Coordinates"
+        # Pattern: NAV066C_Coordinates or NAV066S_Coordinates
+        match = re.search(r'([CS])_Coordinates', filename, re.IGNORECASE)
+        
+        if match:
+            run_suffix = match.group(1).upper()  # Normalize to uppercase
+        else:
+            run_suffix = None
+        
+        results.append((filepath, run_suffix))
+    
+    # Sort by run suffix (None first, then C, then S)
+    def sort_key(item):
+        suffix = item[1]
+        if suffix is None:
+            return (0, "")
+        return (1, suffix)
+    
+    return sorted(results, key=sort_key)
 
 
 def find_preference_file(directory: Path) -> Optional[Path]:

@@ -1,6 +1,6 @@
 # Y-Maze Behavioral Analysis Pipeline
 
-A Python pipeline for processing desktop Y-Maze behavioral data.
+A Python pipeline for processing Y-Maze behavioral data from Unity experiments.
 
 ## Overview
 
@@ -33,11 +33,8 @@ your_project/
 ├── output/                      ← Results will go here (create this folder)
 └── run_ymaze_analysis.py        ← The analysis script
 ```
-*Note that you may have other files in each subject folder. More information under "Expected Directory Structure" below.*
 
 ### 2. Run the analysis
-
-Navigate to your project folder, and type the following into the bash terminal. 
 
 ```bash
 # If your data is in ./data and you want output in ./output:
@@ -71,7 +68,15 @@ data/
 └── ...
 ```
 
-Note: The pipeline only processes files with "Coordinates" in the filename — all other files are ignored. For example:
+**Multiple runs per subject:** If a subject has multiple coordinate files (e.g., scanner and computer runs), place them in the same folder with `C` or `S` suffixes:
+
+```
+NAV066/
+├── NAV066C_Coordinates.csv   ← Computer/desktop run
+├── NAV066S_Coordinates.csv   ← Scanner run
+```
+
+Note: The pipeline only processes files with "Coordinates" in the filename — all other files are ignored:
 
 ```
 NAV066/
@@ -86,15 +91,34 @@ NAV066/
 
 For each subject, the original participant number is preserved (e.g., NAV066 → `sub-066`):
 
+**Single run:**
 ```
 output/
 └── sub-066/
-    ├── sub-066_labeled_final.csv   # Full labeled data
-    ├── firstnp.txt                  # FSL timing: first NP before probe
-    ├── lastnp.txt                   # FSL timing: last NP before probe
-    ├── probe.txt                    # FSL timing: probe trials
-    ├── rest.txt                     # FSL timing: rest period
-    └── sub-066_trajectory.png       # Trajectory visualization
+    ├── sub-066_labeled_final.csv
+    ├── firstnp.txt
+    ├── lastnp.txt
+    ├── probe.txt
+    ├── rest.txt
+    └── sub-066_trajectory.png
+```
+
+**Multiple runs (C and S):**
+```
+output/
+└── sub-066/
+    ├── sub-066_C_labeled_final.csv
+    ├── sub-066_S_labeled_final.csv
+    ├── firstnp_C.txt
+    ├── firstnp_S.txt
+    ├── lastnp_C.txt
+    ├── lastnp_S.txt
+    ├── probe_C.txt
+    ├── probe_S.txt
+    ├── rest_C.txt
+    ├── rest_S.txt
+    ├── sub-066_C_trajectory.png
+    └── sub-066_S_trajectory.png
 ```
 
 ### FSL Timing Format

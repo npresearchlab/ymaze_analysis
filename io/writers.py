@@ -77,7 +77,8 @@ def save_labeled_data(
     df: pd.DataFrame,
     output_dir: Path,
     subject_id: str,
-    suffix: str = "labeled"
+    suffix: str = "labeled",
+    run_suffix: Optional[str] = None
 ) -> Path:
     """
     Save labeled trial data with standardized naming.
@@ -92,13 +93,26 @@ def save_labeled_data(
         Subject identifier (e.g., "sub-01")
     suffix : str
         Filename suffix (default: "labeled")
+    run_suffix : Optional[str]
+        Run identifier (e.g., "C" or "S"). If provided, adds to filename.
         
     Returns
     -------
     Path
         Path to saved file
+        
+    Examples
+    --------
+    >>> save_labeled_data(df, output, "sub-066", "labeled_final")
+    # Saves: sub-066_labeled_final.csv
+    
+    >>> save_labeled_data(df, output, "sub-066", "labeled_final", run_suffix="C")
+    # Saves: sub-066_C_labeled_final.csv
     """
-    filename = f"{subject_id}_{suffix}.csv"
+    if run_suffix:
+        filename = f"{subject_id}_{run_suffix}_{suffix}.csv"
+    else:
+        filename = f"{subject_id}_{suffix}.csv"
     return save_dataframe(df, output_dir, filename)
 
 
@@ -204,7 +218,8 @@ def write_all_fsl_timing_files(
     probe_trials: List[Dict],
     last_event_end: float,
     output_dir: Path,
-    file_names: Optional[Dict[str, str]] = None
+    file_names: Optional[Dict[str, str]] = None,
+    run_suffix: Optional[str] = None
 ) -> Dict[str, Path]:
     """
     Write all four FSL timing files for a subject.
@@ -223,11 +238,21 @@ def write_all_fsl_timing_files(
         Directory for output files
     file_names : Optional[Dict[str, str]]
         Custom file names. Keys: 'first_np', 'last_np', 'probe', 'rest'
+    run_suffix : Optional[str]
+        Run identifier (e.g., "C" or "S"). If provided, adds to filenames.
         
     Returns
     -------
     Dict[str, Path]
         Dictionary mapping file type to saved path
+        
+    Examples
+    --------
+    >>> write_all_fsl_timing_files(..., run_suffix=None)
+    # Creates: firstnp.txt, lastnp.txt, probe.txt, rest.txt
+    
+    >>> write_all_fsl_timing_files(..., run_suffix="C")
+    # Creates: firstnp_C.txt, lastnp_C.txt, probe_C.txt, rest_C.txt
     """
     output_dir = Path(output_dir)
     
@@ -240,6 +265,13 @@ def write_all_fsl_timing_files(
     }
     if file_names:
         names.update(file_names)
+    
+    # Add run suffix to filenames if provided
+    if run_suffix:
+        for key in names:
+            # Insert suffix before .txt extension
+            base = names[key].replace('.txt', '')
+            names[key] = f"{base}_{run_suffix}.txt"
     
     saved_files = {}
     
