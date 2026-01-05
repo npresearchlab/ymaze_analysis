@@ -400,8 +400,9 @@ def find_coordinate_file(directory: Path) -> Optional[Path]:
     if not directory.is_dir():
         return None
     
-    # Look for files with "Coordinates" in name
-    matches = list(directory.glob("*Coordinates*"))
+    # Look for files with "coordinates" in name (case-insensitive)
+    matches = [f for f in directory.iterdir() 
+               if f.is_file() and 'coordinates' in f.name.lower()]
     
     # Filter to only CSV files
     csv_matches = [f for f in matches if f.suffix.lower() == '.csv']
@@ -440,8 +441,9 @@ def find_all_coordinate_files(directory: Path) -> List[Tuple[Path, Optional[str]
     if not directory.is_dir():
         return []
     
-    # Look for files with "Coordinates" in name
-    matches = list(directory.glob("*Coordinates*"))
+    # Look for files with "coordinates" in name (case-insensitive)
+    matches = [f for f in directory.iterdir()
+               if f.is_file() and 'coordinates' in f.name.lower()]
     
     # Filter to only CSV files
     csv_matches = [f for f in matches if f.suffix.lower() == '.csv']
