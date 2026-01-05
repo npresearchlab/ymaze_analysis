@@ -324,7 +324,7 @@ def load_coordinates(
         raise DataLoadError(f"Expected CSV file, got: {filepath.suffix}")
     
     try:
-        df = pd.read_csv(filepath)
+        df = pd.read_csv(filepath, skipinitialspace=True)
     except Exception as e:
         raise DataLoadError(f"Failed to read CSV: {e}")
     
