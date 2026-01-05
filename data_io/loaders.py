@@ -330,6 +330,16 @@ def load_coordinates(
     
     # Clean column names (remove leading/trailing whitespace)
     df = clean_column_names(df)
+
+    # Remove any duplicate header rows that appear in the data
+    df = df[df[columns.x] != columns.x]
+    
+    # Ensure numeric columns are numeric
+    for col in [columns.time, columns.x, columns.z]:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+    
+    # Reset index after filtering
+    df = df.reset_index(drop=True)
     
     if validate:
         errors = validate_coordinate_data(df, columns)
