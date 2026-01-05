@@ -280,7 +280,6 @@ def validate_coordinate_data(
     
     return errors
 
-
 def load_coordinates(
     filepath: Path,
     columns: ColumnNames = CONFIG.columns,
@@ -330,9 +329,21 @@ def load_coordinates(
     
     # Clean column names (remove leading/trailing whitespace)
     df = clean_column_names(df)
-
-    # Remove any duplicate header rows that appear in the data
-    df = df[df[columns.x] != columns.x]
+    
+    # Handle duplicate header rows (task restarts)
+    # Find all rows where the header appears (X column contains 'X')
+    header_rows = df.index[df[columns.x] == columns.x].tolist()
+    
+    if header_rows:
+        # Keep only data after the last header row (last restart)
+        last_header_idx = header_rows[-1]
+        df = df.iloc[last_header_idx + 1:]
+        
+        import logging
+        logging.getLogger(__name__).info(
+            f"Found {len(header_rows)} task restart(s) in {filepath.name}, "
+            f"using data from last restart (row {last_header_idx + 2})"  # +2 for 1-indexed with header
+        )
     
     # Ensure numeric columns are numeric
     for col in [columns.time, columns.x, columns.z]:
