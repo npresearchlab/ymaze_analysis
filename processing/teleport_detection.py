@@ -33,9 +33,9 @@ class TeleportDetector:
     """
     Detects teleportation events in Y-Maze coordinate data.
     
-    A teleportation is detected when:
-    1. The distance between consecutive positions exceeds a threshold
-    2. The new position is within tolerance of a known target position
+    A teleportation is detected when the distance between consecutive 
+    positions exceeds a threshold (indicating a sudden jump rather than
+    normal movement).
     
     Parameters
     ----------
@@ -140,16 +140,22 @@ class TeleportDetector:
             if row['_position_change'] < self.config.distance_threshold:
                 continue
             
-            # Check if near a target position
+            # Any large position change is a teleport
+            # (We no longer require landing at a specific target position)
+            current_pos = (row[self.columns.x], row[self.columns.z])
+            
+            # Try to match to a known target for logging purposes
             target_result = self._check_target_proximity(
                 row[self.columns.x],
                 row[self.columns.z]
             )
             
-            if target_result is None:
-                continue
-            
-            target_idx, target_pos = target_result
+            if target_result is not None:
+                target_idx, target_pos = target_result
+            else:
+                # Unknown target - still count as teleport
+                target_idx = -1
+                target_pos = current_pos
             
             # This is a teleportation!
             actual_idx = labeled_df.index[idx]
