@@ -20,7 +20,11 @@ pip install pandas numpy matplotlib
 
 ## Quick Start
 
-### 1. Set up your folder structure
+### 1. Download the pipeline
+
+Download the `ymaze_analysis` folder from GitHub: [link to repo]
+
+### 2. Set up your folder structure
 
 ```
 your_project/
@@ -31,16 +35,38 @@ your_project/
 │   │   └── NAV067_Coordinates.csv
 │   └── ...
 ├── output/                      ← Results will go here (create this folder)
-└── run_ymaze_analysis.py        ← The analysis script
+│
+└── ymaze_analysis/              ← The analysis pipeline (from GitHub)
+    ├── run_ymaze_analysis.py    # Main entry point
+    ├── config.py                # Configuration settings
+    ├── README.md
+    │
+    ├── data_io/                 # Input/output utilities
+    │   ├── __init__.py
+    │   ├── loaders.py
+    │   └── writers.py
+    │
+    ├── processing/              # Core analysis modules
+    │   ├── __init__.py
+    │   ├── teleport_detection.py
+    │   ├── trial_labeling.py
+    │   └── timing_extraction.py
+    │
+    └── visualization/           # Plotting utilities
+        ├── __init__.py
+        └── trajectory_plots.py
 ```
 
-### 2. Run the analysis
+### 3. Run the analysis
 
 ```bash
-# If your data is in ./data and you want output in ./output:
-python run_ymaze_analysis.py
+# Navigate to the ymaze_analysis folder
+cd ymaze_analysis
 
-# Or specify custom paths:
+# If your data is in ../data and you want output in ../output:
+python run_ymaze_analysis.py --data-dir ../data --output-dir ../output
+
+# Or specify full paths:
 python run_ymaze_analysis.py --data-dir /path/to/data --output-dir /path/to/output
 ```
 
@@ -254,29 +280,6 @@ options:
 - Ensure columns exist: Environment, Cummulative_Time, X, Z
 
 ---
-
-## Project Structure
-
-```
-behavior_analysis/
-├── config.py                 # Configuration settings
-├── run_ymaze_analysis.py     # Main entry point
-│
-├── data_io/                  # Input/output utilities
-│   ├── __init__.py
-│   ├── loaders.py           # CSV loading & validation
-│   └── writers.py           # Saving results & FSL files
-│
-├── processing/               # Core analysis modules
-│   ├── __init__.py
-│   ├── teleport_detection.py # Teleport event detection
-│   ├── trial_labeling.py     # Trial type labeling
-│   └── timing_extraction.py  # Timestamp extraction
-│
-└── visualization/            # Plotting utilities
-    ├── __init__.py
-    └── trajectory_plots.py   # Trajectory visualization
-```
 
 ## Advanced Configuration
 
