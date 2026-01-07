@@ -57,6 +57,14 @@ CSV files with columns (note: original files may have leading spaces):
 - `Z` - Z coordinate
 - `Rotation` - Rotation angle
 
+### Task Restart Handling
+
+If a coordinate file contains multiple header rows (indicating the task was restarted), the pipeline automatically keeps only the data from the **last restart**. A log message will indicate when this occurs:
+
+```
+Found 1 task restart(s) in coordinates_BNC21.csv, using data from last restart (row 236)
+```
+
 ### Transition Period Handling
 
 The Y-maze task switches environment labels during inter-trial pauses (black screen) *before* the participant is actually teleported to the new environment. The pipeline automatically detects and marks these ~6 second transition periods:
@@ -95,7 +103,7 @@ NAV066/
 ├── NAV066S_Coordinates.csv   ← Scanner run
 ```
 
-Note: The pipeline only processes files with "Coordinates" in the filename — all other files are ignored:
+Note: The pipeline only processes files with "Coordinates" (case-insensitive) in the filename — all other files are ignored:
 
 ```
 NAV066/
@@ -139,25 +147,29 @@ output/
 ```
 output/
 └── sub-066/
-    ├── sub-066_C_labeled_final.csv
-    ├── sub-066_S_labeled_final.csv
+    ├── C/
+    │   ├── sub-066_labeled_final.csv
+    │   ├── sub-066_trajectory.png
+    │   ├── trial_numbers/
+    │   │   ├── trial_1.txt
+    │   │   ├── trial_2.txt
+    │   │   └── rest.txt
+    │   └── labeled_trials/
+    │       ├── explore.txt
+    │       ├── probe.txt
+    │       └── rest.txt
     │
-    ├── trial_numbers/
-    │   ├── trial_1_C.txt
-    │   ├── trial_1_S.txt
-    │   ├── ... (etc.)
-    │   ├── rest_C.txt
-    │   └── rest_S.txt
-    │
-    ├── labeled_trials/
-    │   ├── explore_C.txt
-    │   ├── explore_S.txt
-    │   ├── ... (etc.)
-    │   ├── rest_C.txt
-    │   └── rest_S.txt
-    │
-    ├── sub-066_C_trajectory.png
-    └── sub-066_S_trajectory.png
+    └── S/
+        ├── sub-066_labeled_final.csv
+        ├── sub-066_trajectory.png
+        ├── trial_numbers/
+        │   ├── trial_1.txt
+        │   ├── trial_2.txt
+        │   └── rest.txt
+        └── labeled_trials/
+            ├── explore.txt
+            ├── probe.txt
+            └── rest.txt
 ```
 
 ### Labeled Trials Scheme
@@ -234,7 +246,7 @@ options:
 - Specify the path explicitly: `--output-dir /your/path/to/output`
 
 ### "No coordinate file found"
-- Check that files contain "Coordinates" in the filename
+- Check that files contain "Coordinates" (case-insensitive) in the filename
 - Verify files have `.csv` extension
 
 ### "Missing required columns"
@@ -274,9 +286,9 @@ Most users won't need to change these settings, but if you're using a different 
 @dataclass
 class TeleportConfig:
     distance_threshold: float = 5.0      # Min distance for teleportation detection
-    position_tolerance: float = 1.0       # Tolerance for target position matching
+    position_tolerance: float = 1.0       # Tolerance for matching known positions (logging only)
     target_positions: List[Tuple[float, float]] = field(
-        default_factory=lambda: [(36.52, 22.0), (0.0, -32.0)]  # Y-maze start positions
+        default_factory=lambda: [(36.52, 22.0), (0.0, -32.0)]  # Default positions (auto-detected from data)
     )
 ```
 
