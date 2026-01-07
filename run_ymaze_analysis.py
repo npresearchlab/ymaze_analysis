@@ -166,8 +166,11 @@ def process_subject(
     run_label = f" (run {run_suffix})" if run_suffix else ""
     logger.info(f"Processing {subject_id}{run_label}: {coord_file.name}")
     
-    # Create output directory
-    subject_output = ensure_directory(output_dir / subject_id)
+    # Create output directory (with subfolder for run suffix if present)
+    if run_suffix:
+        subject_output = ensure_directory(output_dir / subject_id / run_suffix)
+    else:
+        subject_output = ensure_directory(output_dir / subject_id)
     
     # Step 1: Load and validate data
     df = load_coordinates(coord_file, columns=config.columns)
@@ -206,14 +209,14 @@ def process_subject(
         subject_output, 
         subject_id, 
         suffix="labeled_final",
-        run_suffix=run_suffix
+        run_suffix=None  # No suffix needed - files are in separate folders
     )
     
     # Step 5: Generate FSL timing files (one per trial number)
     fsl_files = write_all_fsl_timing_files(
         timing_data=timing_data,
         output_dir=subject_output,
-        run_suffix=run_suffix
+        run_suffix=None  # No suffix needed - files are in separate folders
     )
     
     # Step 6: Generate visualizations
