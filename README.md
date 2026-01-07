@@ -283,17 +283,18 @@ options:
 
 ## Advanced Configuration
 
-Most users won't need to change these settings, but if you're using a different maze configuration, you can edit `config.py`:
+Most users won't need to change these settings, but if needed, you can edit `config.py`:
 
 ```python
 @dataclass
 class TeleportConfig:
-    distance_threshold: float = 5.0      # Min distance for teleportation detection
-    position_tolerance: float = 1.0       # Tolerance for matching known positions (logging only)
+    distance_threshold: float = 5.0      # Min distance to count as a teleport
     target_positions: List[Tuple[float, float]] = field(
-        default_factory=lambda: [(36.52, 22.0), (0.0, -32.0)]  # Default positions (auto-detected from data)
+        default_factory=lambda: [(36.52, 22.0), (0.0, -32.0)]  # Used for visualization only
     )
 ```
+
+**Note:** The pipeline auto-detects start positions from the data, so `target_positions` is only used as a fallback for visualization if no teleports are found.
 
 ## Advanced Usage
 
