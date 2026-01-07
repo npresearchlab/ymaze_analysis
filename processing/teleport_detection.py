@@ -50,7 +50,7 @@ class TeleportDetector:
     >>> df, events = detector.detect(coordinate_df)
     >>> print(f"Found {len(events)} teleportation events")
     """
-    
+
     def __init__(
         self,
         config: TeleportConfig = CONFIG.teleport,
@@ -165,9 +165,12 @@ class TeleportDetector:
             )
             
             # Check if first teleport to this target
-            is_first = not self._first_teleport_seen[target_idx]
-            if is_first:
-                self._first_teleport_seen[target_idx] = True
+            if target_idx >= 0:
+                is_first = not self._first_teleport_seen[target_idx]
+                if is_first:
+                    self._first_teleport_seen[target_idx] = True
+            else:
+                is_first = False  # Unknown target, don't track as "first"
             
             # Create event record
             event = TeleportEvent(
