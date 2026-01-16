@@ -338,7 +338,7 @@ Preference CSV files with columns:
 | Column | Description |
 |--------|-------------|
 | `subject_id` | Subject identifier |
-| `n_responses` | Total number of preference responses |
+| `n_environments` | Number of environments with preference data |
 | `n_place` | Number of Place responses |
 | `n_response` | Number of Response responses |
 | `pct_place` | Percentage Place responses |
