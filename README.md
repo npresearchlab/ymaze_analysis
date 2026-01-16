@@ -4,7 +4,15 @@ A Python pipeline for processing Y-Maze behavioral data from Unity experiments.
 
 ## Overview
 
-This pipeline processes coordinate data collected during Y-Maze tasks to:
+This pipeline provides three standalone scripts:
+
+| Script | Purpose |
+|--------|---------|
+| `create_ymaze_timing.py` | Process coordinates → FSL timing files |
+| `create_ymaze_outcomes.py` | Calculate behavioral outcome measures |
+| `run_preference_analysis.py` | Aggregate preference classifications |
+
+The timing script processes coordinate data to:
 
 1. **Detect teleportation events** - Identify when participants are teleported back to starting positions
 2. **Label trials** - Categorize events as probe (p) or non-probe (np1, np2, etc.)
@@ -157,14 +165,14 @@ For each subject, the original participant number is preserved (e.g., NAV066 →
 **Single run:**
 ```
 output/
-├── all_outcomes.csv                    # Aggregated task outcomes (if --compute-outcomes)
+├── all_outcomes.csv                    # Aggregated task outcomes (from create_ymaze_outcomes.py)
 ├── all_preferences.csv                 # Aggregated preferences (from run_preference_analysis.py)
 │
 └── sub-066/
     ├── sub-066_labeled_final.csv       # Full labeled data with trial_num column
-    ├── sub-066_trial_outcomes.csv      # Trial-level outcomes (if --compute-outcomes)
-    ├── sub-066_env_outcomes.csv        # Environment-level outcomes (if --compute-outcomes)
-    ├── sub-066_task_outcomes.csv       # Task-level outcomes (if --compute-outcomes)
+    ├── sub-066_trial_outcomes.csv      # Trial-level outcomes (from create_ymaze_outcomes.py)
+    ├── sub-066_env_outcomes.csv        # Environment-level outcomes (from create_ymaze_outcomes.py)
+    ├── sub-066_task_outcomes.csv       # Task-level outcomes (from create_ymaze_outcomes.py)
     │
     ├── trial_numbers/                  # Raw trial-numbered FSL files
     │   ├── trial_1.txt                 # All 1st trials across environments
@@ -188,30 +196,30 @@ output/
 **Multiple runs (C and S):**
 ```
 output/
+├── all_outcomes.csv                    # Aggregated across all subjects/runs
+│
 └── sub-066/
     ├── C/
     │   ├── sub-066_labeled_final.csv
+    │   ├── sub-066_trial_outcomes.csv  # Outcome files (from create_ymaze_outcomes.py)
+    │   ├── sub-066_env_outcomes.csv
+    │   ├── sub-066_task_outcomes.csv
     │   ├── sub-066_trajectory.png
     │   ├── trial_numbers/
-    │   │   ├── trial_1.txt
-    │   │   ├── trial_2.txt
-    │   │   └── rest.txt
+    │   │   └── ...
     │   └── labeled_trials/
-    │       ├── explore.txt
-    │       ├── probe.txt
-    │       └── rest.txt
+    │       └── ...
     │
     └── S/
         ├── sub-066_labeled_final.csv
+        ├── sub-066_trial_outcomes.csv
+        ├── sub-066_env_outcomes.csv
+        ├── sub-066_task_outcomes.csv
         ├── sub-066_trajectory.png
         ├── trial_numbers/
-        │   ├── trial_1.txt
-        │   ├── trial_2.txt
-        │   └── rest.txt
+        │   └── ...
         └── labeled_trials/
-            ├── explore.txt
-            ├── probe.txt
-            └── rest.txt
+            └── ...
 ```
 
 ### Labeled Trials Scheme
@@ -250,7 +258,12 @@ Three-column format: `onset duration weight`
 
 ## Outcome Measures
 
-When using the `--compute-outcomes` flag, the pipeline calculates behavioral outcome measures at three levels.
+The `create_ymaze_outcomes.py` script reads `labeled_final.csv` files and calculates behavioral outcome measures at three levels.
+
+```bash
+# Run after create_ymaze_timing.py has generated labeled_final.csv files
+python create_ymaze_outcomes.py --output-dir ../output
+```
 
 ### Trial-Level Outcomes (`sub-XXX_trial_outcomes.csv`)
 
@@ -369,11 +382,19 @@ options:
 
 ### Outcome Measures Calculator (`create_ymaze_outcomes.py`)
 
+This script can run in two modes:
+1. **Use existing files**: If `labeled_final.csv` files exist (from `create_ymaze_timing.py`), use those
+2. **Process raw data**: If no labeled files found, process raw coordinate files directly from `--data-dir`
+
 ```
-usage: create_ymaze_outcomes.py [-h] [--output-dir PATH] [--verbose] [--log-file PATH]
+usage: create_ymaze_outcomes.py [-h] [--data-dir PATH] [--output-dir PATH]
+                                 [--subject-prefix PREFIX] [--verbose] [--log-file PATH]
 
 options:
-  --output-dir, -o      Path to output directory containing labeled_final.csv files (default: ./output)
+  --data-dir, -d        Path to data directory with raw coordinate files
+                        (used only if no labeled_final.csv files found)
+  --output-dir, -o      Path to output directory (default: ./output)
+  --subject-prefix, -p  Prefix for subject IDs when processing raw files (default: sub)
   --verbose, -v         Enable verbose logging
   --log-file            Save logs to file
 ```
@@ -458,4 +479,23 @@ timing = extract_timing(labeled_df)
 
 print(f"Found {len(timing.trials)} total trials")
 print(f"Max trial number: {timing.max_trial_num}")
+```
+
+### Calculating outcome measures programmatically
+
+```python
+from post import calculate_outcome_measures
+
+# After extracting timing (see above)
+outcomes = calculate_outcome_measures(timing, subject_id="sub-066")
+
+# Access outcome data
+print(f"Total trials: {len(outcomes.trial_outcomes)}")
+print(f"Environments: {len(outcomes.env_outcomes)}")
+print(f"Task duration: {outcomes.task_outcome.total_time:.1f}s")
+
+# Convert to DataFrames
+trial_df = outcomes.trial_outcomes_to_dataframe()
+env_df = outcomes.env_outcomes_to_dataframe()
+task_df = outcomes.task_outcome_to_dataframe()
 ```

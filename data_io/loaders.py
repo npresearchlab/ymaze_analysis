@@ -561,7 +561,12 @@ def find_all_preference_files(data_dir: Path) -> List[Path]:
     """
     Recursively find all preference files in a directory.
 
-    Searches for CSV files containing "Preferences" in the filename.
+    Searches for CSV files containing "Preference" (case-insensitive) in the filename.
+
+    Matches files like:
+    - preferences_BNC21.csv
+    - YMazePreference_NAV066.csv
+    - NAV066_Preferences.csv
 
     Parameters
     ----------
@@ -583,11 +588,10 @@ def find_all_preference_files(data_dir: Path) -> List[Path]:
         logger.warning(f"Directory not found: {data_dir}")
         return []
 
-    # Search recursively for preference files
-    preference_files = list(data_dir.rglob("*Preferences*.csv"))
-
-    # Also try case-insensitive search
-    preference_files.extend(data_dir.rglob("*preferences*.csv"))
+    # Search recursively for preference files (case-insensitive)
+    # Using singular "Preference" matches both "Preference" and "Preferences"
+    preference_files = list(data_dir.rglob("*Preference*.csv"))
+    preference_files.extend(data_dir.rglob("*preference*.csv"))
 
     # Remove duplicates and sort
     unique_files = list(set(preference_files))
