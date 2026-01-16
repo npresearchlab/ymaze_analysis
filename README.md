@@ -330,8 +330,6 @@ python run_preference_analysis.py --data-dir ../data --output-dir ../output
 
 Preference CSV files with columns:
 - `ID` - Subject identifier
-- `Gender` - Subject gender (optional)
-- `Age` - Subject age (optional)
 - `MazeName` - Environment/maze name
 - `Preference` - `Place` or `Response`
 
@@ -340,8 +338,6 @@ Preference CSV files with columns:
 | Column | Description |
 |--------|-------------|
 | `subject_id` | Subject identifier |
-| `gender` | Subject gender |
-| `age` | Subject age |
 | `n_responses` | Total number of preference responses |
 | `n_place` | Number of Place responses |
 | `n_response` | Number of Response responses |
