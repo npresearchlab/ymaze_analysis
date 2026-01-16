@@ -531,27 +531,65 @@ def find_preference_file(directory: Path) -> Optional[Path]:
 def discover_subjects(data_dir: Path) -> List[Path]:
     """
     Discover all subject directories in a data folder.
-    
+
     Filters out hidden directories (starting with '.').
-    
+
     Parameters
     ----------
     data_dir : Path
         Root data directory containing subject folders
-        
+
     Returns
     -------
     List[Path]
         Sorted list of subject directory paths
     """
     data_dir = Path(data_dir)
-    
+
     if not data_dir.is_dir():
         return []
-    
+
     subjects = [
         d for d in data_dir.iterdir()
         if d.is_dir() and not d.name.startswith('.')
     ]
-    
+
     return sorted(subjects)
+
+
+def find_all_preference_files(data_dir: Path) -> List[Path]:
+    """
+    Recursively find all preference files in a directory.
+
+    Searches for CSV files containing "Preferences" in the filename.
+
+    Parameters
+    ----------
+    data_dir : Path
+        Root data directory to search
+
+    Returns
+    -------
+    List[Path]
+        Sorted list of paths to preference files
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    data_dir = Path(data_dir)
+
+    if not data_dir.is_dir():
+        logger.warning(f"Directory not found: {data_dir}")
+        return []
+
+    # Search recursively for preference files
+    preference_files = list(data_dir.rglob("*Preferences*.csv"))
+
+    # Also try case-insensitive search
+    preference_files.extend(data_dir.rglob("*preferences*.csv"))
+
+    # Remove duplicates and sort
+    unique_files = list(set(preference_files))
+
+    return sorted(unique_files)

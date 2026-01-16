@@ -8,6 +8,7 @@ from .loaders import (
     find_coordinate_file,
     find_all_coordinate_files,
     find_preference_file,
+    find_all_preference_files,
     discover_subjects,
     clean_column_names,
     validate_coordinate_data,
@@ -22,16 +23,20 @@ from .writers import (
     write_rest_timing_file,
     write_all_fsl_timing_files,
     ensure_directory,
-    ProcessingReport
+    ProcessingReport,
+    save_outcome_measures,
+    save_aggregated_outcomes,
+    save_aggregated_preferences
 )
 
 __all__ = [
     # Loaders
     'load_coordinates',
-    'load_preferences', 
+    'load_preferences',
     'find_coordinate_file',
     'find_all_coordinate_files',
     'find_preference_file',
+    'find_all_preference_files',
     'discover_subjects',
     'clean_column_names',
     'validate_coordinate_data',
@@ -44,5 +49,8 @@ __all__ = [
     'write_rest_timing_file',
     'write_all_fsl_timing_files',
     'ensure_directory',
-    'ProcessingReport'
+    'ProcessingReport',
+    'save_outcome_measures',
+    'save_aggregated_outcomes',
+    'save_aggregated_preferences'
 ]

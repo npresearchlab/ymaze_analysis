@@ -37,7 +37,9 @@ your_project/
 ├── output/                      ← Results will go here (create this folder)
 │
 └── ymaze_analysis/              ← The analysis pipeline (from GitHub)
-    ├── run_ymaze_analysis.py    # Main entry point
+    ├── create_ymaze_timing.py   # Generate FSL timing files from coordinates
+    ├── create_ymaze_outcomes.py # Calculate behavioral outcome measures
+    ├── run_preference_analysis.py  # Aggregate preference data
     ├── config.py                # Configuration settings
     ├── README.md
     │
@@ -52,6 +54,11 @@ your_project/
     │   ├── trial_labeling.py
     │   └── timing_extraction.py
     │
+    ├── post/                    # Post-processing and aggregation
+    │   ├── __init__.py
+    │   ├── outcome_measures.py
+    │   └── preference_aggregation.py
+    │
     └── visualization/           # Plotting utilities
         ├── __init__.py
         └── trajectory_plots.py
@@ -63,14 +70,17 @@ your_project/
 # Navigate to the ymaze_analysis folder
 cd ymaze_analysis
 
-# If your data is in ../data and you want output in ../output:
-python run_ymaze_analysis.py --data-dir ../data --output-dir ../output
+# Step 1: Generate FSL timing files from coordinate data
+python create_ymaze_timing.py --data-dir ../data --output-dir ../output
 
-# Or specify full paths:
-python run_ymaze_analysis.py --data-dir /path/to/data --output-dir /path/to/output
+# Step 2 (optional): Calculate behavioral outcome measures
+python create_ymaze_outcomes.py --output-dir ../output
+
+# Step 3 (optional): Aggregate preference data
+python run_preference_analysis.py --data-dir ../data --output-dir ../output
 ```
 
-That's it! The script will process all participants and generate FSL timing files.
+The timing script processes all participants and generates FSL timing files.
 
 ## Input Data Format
 
@@ -147,8 +157,14 @@ For each subject, the original participant number is preserved (e.g., NAV066 →
 **Single run:**
 ```
 output/
+├── all_outcomes.csv                    # Aggregated task outcomes (if --compute-outcomes)
+├── all_preferences.csv                 # Aggregated preferences (from run_preference_analysis.py)
+│
 └── sub-066/
-    ├── sub-066_labeled_final.csv      # Full labeled data with trial_num column
+    ├── sub-066_labeled_final.csv       # Full labeled data with trial_num column
+    ├── sub-066_trial_outcomes.csv      # Trial-level outcomes (if --compute-outcomes)
+    ├── sub-066_env_outcomes.csv        # Environment-level outcomes (if --compute-outcomes)
+    ├── sub-066_task_outcomes.csv       # Task-level outcomes (if --compute-outcomes)
     │
     ├── trial_numbers/                  # Raw trial-numbered FSL files
     │   ├── trial_1.txt                 # All 1st trials across environments
@@ -232,12 +248,112 @@ Three-column format: `onset duration weight`
 ...
 ```
 
+## Outcome Measures
+
+When using the `--compute-outcomes` flag, the pipeline calculates behavioral outcome measures at three levels.
+
+### Trial-Level Outcomes (`sub-XXX_trial_outcomes.csv`)
+
+One row per trial:
+
+| Column | Description |
+|--------|-------------|
+| `subject_id` | Subject identifier |
+| `environment` | Environment name |
+| `trial_num` | Trial number within environment (1, 2, 3...) |
+| `trial_type` | `np` (non-probe) or `p` (probe) |
+| `duration` | Trial duration in seconds |
+| `start_time` | Trial start time (normalized) |
+| `end_time` | Trial end time |
+
+### Environment-Level Outcomes (`sub-XXX_env_outcomes.csv`)
+
+One row per environment:
+
+| Column | Description |
+|--------|-------------|
+| `subject_id` | Subject identifier |
+| `environment` | Environment name |
+| `n_np_trials` | Number of non-probe trials |
+| `total_time` | Total time for this environment |
+| `avg_np_duration` | Average non-probe trial duration |
+| `probe_duration` | Probe trial duration (if exists) |
+| `has_probe` | Whether environment had a probe trial |
+
+### Task-Level Outcomes (`sub-XXX_task_outcomes.csv`)
+
+One row per subject/run:
+
+| Column | Description |
+|--------|-------------|
+| `subject_id` | Subject identifier |
+| `run_suffix` | `C`, `S`, or empty |
+| `n_environments` | Number of environments processed |
+| `n_complete_environments` | Environments with probe trials |
+| `total_time` | Total task time |
+| `total_np_trials` | Total non-probe trials across all environments |
+| `total_probe_trials` | Total probe trials |
+| `avg_np_per_environment` | Average non-probe trials per environment |
+| `avg_env_duration` | Average environment duration |
+| `avg_np_duration` | Average non-probe trial duration (across all) |
+| `avg_probe_duration` | Average probe trial duration (across all) |
+
+### Group-Level Aggregation (`all_outcomes.csv`)
+
+Task-level outcomes aggregated across all subjects, saved to the output root directory.
+
+## Preference Aggregation
+
+The preference analysis script aggregates preference responses and applies classification schemes.
+
+### Usage
+
+```bash
+# Aggregate preferences from all subjects
+python run_preference_analysis.py --data-dir ../data --output-dir ../output
+```
+
+### Input Format
+
+Preference CSV files with columns:
+- `ID` - Subject identifier
+- `Gender` - Subject gender (optional)
+- `Age` - Subject age (optional)
+- `MazeName` - Environment/maze name
+- `Preference` - `Place` or `Response`
+
+### Output (`all_preferences.csv`)
+
+| Column | Description |
+|--------|-------------|
+| `subject_id` | Subject identifier |
+| `gender` | Subject gender |
+| `age` | Subject age |
+| `n_responses` | Total number of preference responses |
+| `n_place` | Number of Place responses |
+| `n_response` | Number of Response responses |
+| `pct_place` | Percentage Place responses |
+| `pct_response` | Percentage Response responses |
+| `majority` | Classification: allocentric if >= 50% Place |
+| `ego_presence` | Classification: allocentric only if 100% Place |
+| `ego_exclusive` | Classification: egocentric only if 0% Place |
+
+### Classification Schemes
+
+| Scheme | Allocentric | Egocentric |
+|--------|-------------|------------|
+| Majority | >= 50% Place | < 50% Place |
+| Ego_Presence | 100% Place | < 100% Place |
+| Ego_Exclusive | > 0% Place | 0% Place |
+
 ## Command Line Options
 
+### FSL Timing Generator (`create_ymaze_timing.py`)
+
 ```
-usage: run_ymaze_analysis.py [-h] [--data-dir PATH] [--output-dir PATH]
-                              [--subject-prefix PREFIX] [--debug] [--no-plots]
-                              [--verbose] [--log-file PATH]
+usage: create_ymaze_timing.py [-h] [--data-dir PATH] [--output-dir PATH]
+                               [--subject-prefix PREFIX] [--debug] [--no-plots]
+                               [--verbose] [--log-file PATH]
 
 options:
   --data-dir, -d        Path to data directory (default: ./data)
@@ -247,6 +363,30 @@ options:
                         NAV066 → sub-066, NAV123 → sub-123
   --debug               Save intermediate processing files
   --no-plots            Skip trajectory visualizations
+  --verbose, -v         Enable verbose logging
+  --log-file            Save logs to file
+```
+
+### Outcome Measures Calculator (`create_ymaze_outcomes.py`)
+
+```
+usage: create_ymaze_outcomes.py [-h] [--output-dir PATH] [--verbose] [--log-file PATH]
+
+options:
+  --output-dir, -o      Path to output directory containing labeled_final.csv files (default: ./output)
+  --verbose, -v         Enable verbose logging
+  --log-file            Save logs to file
+```
+
+### Preference Aggregation (`run_preference_analysis.py`)
+
+```
+usage: run_preference_analysis.py [-h] [--data-dir PATH] [--output-dir PATH]
+                                   [--verbose] [--log-file PATH]
+
+options:
+  --data-dir, -d        Path to data directory containing preference files (default: ./data)
+  --output-dir, -o      Path to output directory (default: ./output)
   --verbose, -v         Enable verbose logging
   --log-file            Save logs to file
 ```

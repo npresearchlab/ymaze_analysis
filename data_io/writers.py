@@ -479,8 +479,131 @@ class ProcessingReport:
         print(f"{'='*50}")
         print(f"Successfully processed: {len(self.subjects)} subjects")
         print(f"Errors encountered: {len(self.errors)}")
-        
+
         if self.errors:
             print("\nErrors:")
             for err in self.errors:
                 print(f"  - {err['folder']}: {err['error']}")
+
+
+def save_outcome_measures(
+    outcome_measures,  # OutcomeMeasures object
+    output_dir: Path,
+    subject_id: str,
+    run_suffix: Optional[str] = None
+) -> Dict[str, Path]:
+    """
+    Save per-subject outcome measures at all levels.
+
+    Creates three CSV files:
+    - sub-XXX_trial_outcomes.csv: Trial-level outcomes
+    - sub-XXX_env_outcomes.csv: Environment-level outcomes
+    - sub-XXX_task_outcomes.csv: Task-level outcomes
+
+    Parameters
+    ----------
+    outcome_measures : OutcomeMeasures
+        Calculated outcome measures for a subject
+    output_dir : Path
+        Subject's output directory
+    subject_id : str
+        Subject identifier (e.g., "sub-066")
+    run_suffix : Optional[str]
+        Run identifier (e.g., "C" or "S")
+
+    Returns
+    -------
+    Dict[str, Path]
+        Dictionary mapping outcome type to saved file path
+    """
+    output_dir = Path(output_dir)
+    ensure_directory(output_dir)
+
+    saved_files = {}
+
+    # Build filename prefix
+    if run_suffix:
+        prefix = f"{subject_id}_{run_suffix}"
+    else:
+        prefix = subject_id
+
+    # Save trial-level outcomes
+    trial_df = outcome_measures.trial_outcomes_to_dataframe()
+    if not trial_df.empty:
+        saved_files['trial_outcomes'] = save_dataframe(
+            trial_df,
+            output_dir,
+            f"{prefix}_trial_outcomes.csv"
+        )
+
+    # Save environment-level outcomes
+    env_df = outcome_measures.env_outcomes_to_dataframe()
+    if not env_df.empty:
+        saved_files['env_outcomes'] = save_dataframe(
+            env_df,
+            output_dir,
+            f"{prefix}_env_outcomes.csv"
+        )
+
+    # Save task-level outcomes
+    task_df = outcome_measures.task_outcome_to_dataframe()
+    if not task_df.empty:
+        saved_files['task_outcomes'] = save_dataframe(
+            task_df,
+            output_dir,
+            f"{prefix}_task_outcomes.csv"
+        )
+
+    logger.info(f"Saved outcome measures for {subject_id} to {output_dir}")
+
+    return saved_files
+
+
+def save_aggregated_outcomes(
+    aggregated_df: pd.DataFrame,
+    output_dir: Path,
+    filename: str = "all_outcomes.csv"
+) -> Path:
+    """
+    Save aggregated task-level outcomes across all subjects.
+
+    Parameters
+    ----------
+    aggregated_df : pd.DataFrame
+        Aggregated task-level outcomes
+    output_dir : Path
+        Output directory
+    filename : str
+        Output filename
+
+    Returns
+    -------
+    Path
+        Path to saved file
+    """
+    return save_dataframe(aggregated_df, output_dir, filename)
+
+
+def save_aggregated_preferences(
+    preferences_df: pd.DataFrame,
+    output_dir: Path,
+    filename: str = "all_preferences.csv"
+) -> Path:
+    """
+    Save aggregated preference classifications.
+
+    Parameters
+    ----------
+    preferences_df : pd.DataFrame
+        Aggregated preference data with classifications
+    output_dir : Path
+        Output directory
+    filename : str
+        Output filename
+
+    Returns
+    -------
+    Path
+        Path to saved file
+    """
+    return save_dataframe(preferences_df, output_dir, filename)
