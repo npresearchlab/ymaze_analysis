@@ -9,7 +9,7 @@ Handles:
 
 import pandas as pd
 from pathlib import Path
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict
 
 from config import ColumnNames, CONFIG
 
@@ -438,17 +438,18 @@ def find_coordinate_file(directory: Path) -> Optional[Path]:
 def find_all_coordinate_files(directory: Path) -> List[Tuple[Path, Optional[str]]]:
     """
     Find all coordinate files in a directory and extract run suffixes.
-    
+
     Handles patterns like:
-    - NAV066_Coordinates.csv → (path, None)
-    - NAV066C_Coordinates.csv → (path, "C")  
-    - NAV066S_Coordinates.csv → (path, "S")
-    
+    - coordinates_NAV066.csv → (path, None)
+    - coordinates_NAV066C.csv → (path, "C")
+    - coordinates_NAV066S.csv → (path, "S")
+    - coordinates_NAV090S_2.csv → (path, "S")
+
     Parameters
     ----------
     directory : Path
         Directory to search
-        
+
     Returns
     -------
     List[Tuple[Path, Optional[str]]]
@@ -456,45 +457,46 @@ def find_all_coordinate_files(directory: Path) -> List[Tuple[Path, Optional[str]
         run_suffix is None if no C/S suffix detected.
     """
     import re
-    
+
     directory = Path(directory)
-    
+
     if not directory.is_dir():
         return []
-    
+
     # Look for files with "coordinates" in name (case-insensitive)
     matches = [f for f in directory.iterdir()
                if f.is_file() and 'coordinates' in f.name.lower()]
-    
+
     # Filter to only CSV files
     csv_matches = [f for f in matches if f.suffix.lower() == '.csv']
-    
+
     if not csv_matches:
         return []
-    
+
     results = []
-    
+
     for filepath in csv_matches:
-        filename = filepath.stem  # e.g., "NAV066C_Coordinates"
-        
-        # Try to extract run suffix (C or S) before "_Coordinates"
-        # Pattern: NAV066C_Coordinates or NAV066S_Coordinates
-        match = re.search(r'([CS])_Coordinates', filename, re.IGNORECASE)
-        
+        filename = filepath.stem  # e.g., "coordinates_NAV066C" or "coordinates_NAV090S_2"
+
+        # Extract run suffix (C or S) after subject ID
+        # Pattern: coordinates_SUBID[C|S] with optional _number suffix
+        # e.g., coordinates_NAV066C, coordinates_NAV066S, coordinates_NAV090S_2
+        match = re.search(r'coordinates_(NAV|BNC)\d+([CS])(?:_\d+)?$', filename, re.IGNORECASE)
+
         if match:
-            run_suffix = match.group(1).upper()  # Normalize to uppercase
+            run_suffix = match.group(2).upper()  # Normalize to uppercase
         else:
             run_suffix = None
-        
+
         results.append((filepath, run_suffix))
-    
+
     # Sort by run suffix (None first, then C, then S)
     def sort_key(item):
         suffix = item[1]
         if suffix is None:
             return (0, "")
         return (1, suffix)
-    
+
     return sorted(results, key=sort_key)
 
 
@@ -597,3 +599,134 @@ def find_all_preference_files(data_dir: Path) -> List[Path]:
     unique_files = list(set(preference_files))
 
     return sorted(unique_files)
+
+
+def find_matching_preference_file(
+    subject_folder: Path,
+    run_suffix: Optional[str] = None
+) -> Optional[Path]:
+    """
+    Find the preferences file matching a specific subject and run.
+
+    Looks for preference files in the subject folder that match the run suffix.
+    For example:
+    - run_suffix="C" → looks for preferences_*C.csv
+    - run_suffix="S" → looks for preferences_*S.csv
+    - run_suffix=None → looks for preferences file without C/S suffix
+
+    Parameters
+    ----------
+    subject_folder : Path
+        Subject's data folder
+    run_suffix : Optional[str]
+        Run identifier (e.g., "C" or "S")
+
+    Returns
+    -------
+    Optional[Path]
+        Path to matching preferences file, or None if not found
+    """
+    import re
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    subject_folder = Path(subject_folder)
+
+    if not subject_folder.is_dir():
+        return None
+
+    # Find all preference files in the folder
+    preference_files = [
+        f for f in subject_folder.iterdir()
+        if f.is_file() and 'preference' in f.name.lower() and f.suffix.lower() == '.csv'
+    ]
+
+    if not preference_files:
+        return None
+
+    # Try to find exact match for run suffix
+    for pref_file in preference_files:
+        filename = pref_file.stem  # e.g., "preferences_NAV082C"
+
+        # Extract suffix from preferences filename
+        # Pattern: preferences_SUBID[C|S] or similar
+        match = re.search(r'(NAV|BNC)\d+([CS])$', filename, re.IGNORECASE)
+
+        if run_suffix:
+            # Looking for specific run suffix
+            if match and match.group(2).upper() == run_suffix.upper():
+                logger.debug(f"Found matching preferences file: {pref_file.name}")
+                return pref_file
+        else:
+            # Looking for file without run suffix
+            if not match:
+                logger.debug(f"Found preferences file (no suffix): {pref_file.name}")
+                return pref_file
+
+    # If no exact match and we have run_suffix, try to find any preferences file
+    # This handles cases where there's only one preferences file for multiple runs
+    if run_suffix and len(preference_files) == 1:
+        logger.debug(
+            f"No exact match for run {run_suffix}, using only available: {preference_files[0].name}"
+        )
+        return preference_files[0]
+
+    return None
+
+
+def load_environment_preferences(filepath: Path) -> Dict[str, str]:
+    """
+    Load preferences file and return environment-to-preference mapping.
+
+    Parameters
+    ----------
+    filepath : Path
+        Path to the preferences CSV file
+
+    Returns
+    -------
+    Dict[str, str]
+        Mapping of environment name (MazeName) to preference ("Place" or "Response")
+
+    Raises
+    ------
+    DataLoadError
+        If file cannot be loaded or is malformed
+    """
+    filepath = Path(filepath)
+
+    if not filepath.exists():
+        raise DataLoadError(f"Preferences file not found: {filepath}")
+
+    try:
+        df = pd.read_csv(filepath)
+        df = clean_column_names(df)
+    except Exception as e:
+        raise DataLoadError(f"Failed to read preferences CSV: {e}")
+
+    # Validate required columns
+    required = ['MazeName', 'Preference']
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise DataLoadError(f"Preferences file missing columns: {missing}")
+
+    # Build environment -> preference mapping
+    env_prefs = {}
+    for _, row in df.iterrows():
+        maze_name = str(row['MazeName']).strip()
+        preference = str(row['Preference']).strip()
+
+        # Normalize preference to lowercase for consistency
+        preference_lower = preference.lower()
+        if preference_lower == 'place':
+            env_prefs[maze_name] = 'place'
+        elif preference_lower == 'response':
+            env_prefs[maze_name] = 'response'
+        else:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"Unknown preference value '{preference}' for {maze_name}, skipping"
+            )
+
+    return env_prefs

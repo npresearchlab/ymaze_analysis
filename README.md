@@ -38,9 +38,13 @@ Download the `ymaze_analysis` folder from GitHub: [link to repo]
 your_project/
 ├── data/                        ← Put your raw data here
 │   ├── NAV066/
-│   │   └── NAV066_Coordinates.csv
+│   │   ├── coordinates_NAV066C.csv
+│   │   ├── coordinates_NAV066S.csv
+│   │   ├── preferences_NAV066C.csv
+│   │   └── preferences_NAV066S.csv
 │   ├── NAV067/
-│   │   └── NAV067_Coordinates.csv
+│   │   ├── coordinates_NAV067.csv
+│   │   └── preferences_NAV067.csv
 │   └── ...
 ├── output/                      ← Results will go here (create this folder)
 │
@@ -109,6 +113,14 @@ If a coordinate file contains multiple header rows (indicating the task was rest
 Found 1 task restart(s) in coordinates_BNC21.csv, using data from last restart (row 236)
 ```
 
+### Preference Files
+
+The preference analysis script (`run_preference_analysis.py`) looks for files with "preferences" in the filename. These should follow the same naming convention as coordinate files:
+
+```
+preferences_SUBID[C|S][_N].csv
+```
+
 ### Transition Period Handling
 
 The Y-maze task switches environment labels during inter-trial pauses (black screen) *before* the participant is actually teleported to the new environment. The pipeline automatically detects and marks these ~6 second transition periods:
@@ -133,26 +145,56 @@ If a participant stops mid-environment (incomplete), the last teleport still goe
 ```
 data/
 ├── NAV066/
-│   └── NAV066_Coordinates.csv
+│   ├── coordinates_NAV066C.csv
+│   ├── coordinates_NAV066S.csv
+│   ├── preferences_NAV066C.csv
+│   └── preferences_NAV066S.csv
 ├── NAV067/
-│   └── NAV067_Coordinates.csv
+│   ├── coordinates_NAV067.csv
+│   └── preferences_NAV067.csv
 └── ...
 ```
 
-**Multiple runs per subject:** If a subject has multiple coordinate files (e.g., scanner and computer runs), place them in the same folder with `C` or `S` suffixes:
+### File Naming Convention
+
+Files must follow this naming pattern:
+
+| File Type | Pattern | Examples |
+|-----------|---------|----------|
+| Coordinates | `coordinates_SUBID[C\|S][_N].csv` | `coordinates_NAV066.csv`, `coordinates_NAV066C.csv`, `coordinates_NAV090S_2.csv` |
+| Preferences | `preferences_SUBID[C\|S][_N].csv` | `preferences_NAV066.csv`, `preferences_NAV066S.csv`, `preferences_NAV090S_2.csv` |
+
+Where:
+- `SUBID` = Subject ID (e.g., `NAV066`, `BNC21`)
+- `C` or `S` = Optional run marker (Computer or Scanner)
+- `_N` = Optional run number for repeat runs (e.g., `_2`, `_3`)
+
+**Multiple runs per subject:** If a subject has multiple runs (e.g., scanner and computer), add `C` or `S` after the subject ID:
 
 ```
 NAV066/
-├── NAV066C_Coordinates.csv   ← Computer/desktop run
-├── NAV066S_Coordinates.csv   ← Scanner run
+├── coordinates_NAV066C.csv   ← Computer/desktop run
+├── coordinates_NAV066S.csv   ← Scanner run
+├── preferences_NAV066C.csv
+└── preferences_NAV066S.csv
 ```
 
-Note: The pipeline only processes files with "Coordinates" (case-insensitive) in the filename — all other files are ignored:
+**Repeat runs:** If a run was repeated, add a number suffix:
+
+```
+NAV090/
+├── coordinates_NAV090S.csv     ← First scanner run
+├── coordinates_NAV090S_2.csv   ← Second scanner run (repeat)
+├── preferences_NAV090S.csv
+└── preferences_NAV090S_2.csv
+```
+
+Note: The pipeline only processes files with "coordinates" (case-insensitive) in the filename for timing analysis. Preference files are processed separately by `run_preference_analysis.py`.
 
 ```
 NAV066/
-├── NAV066_Coordinates.csv    ← ✓ Processed
-├── NAV066_Preferences.csv    ← Ignored
+├── coordinates_NAV066C.csv   ← ✓ Processed by create_ymaze_timing.py
+├── preferences_NAV066C.csv   ← ✓ Processed by run_preference_analysis.py
 ├── NAV066_Log.txt            ← Ignored
 ├── notes.docx                ← Ignored
 └── .DS_Store                 ← Ignored
@@ -429,7 +471,8 @@ options:
 - Specify the path explicitly: `--output-dir /your/path/to/output`
 
 ### "No coordinate file found"
-- Check that files contain "Coordinates" (case-insensitive) in the filename
+- Check that files follow the naming convention: `coordinates_SUBID.csv` (e.g., `coordinates_NAV066.csv`)
+- Files must contain "coordinates" (case-insensitive) in the filename
 - Verify files have `.csv` extension
 
 ### "Missing required columns"
@@ -462,7 +505,7 @@ from data_io import load_coordinates
 from processing import detect_teleportations, label_trials, extract_timing
 
 # Load data
-df = load_coordinates("/path/to/NAV066_Coordinates.csv")
+df = load_coordinates("/path/to/coordinates_NAV066.csv")
 
 # Detect teleportations
 teleport_df, events = detect_teleportations(df)

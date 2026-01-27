@@ -9,7 +9,8 @@ Handles:
 
 import pandas as pd
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
+from datetime import datetime
 import logging
 
 logger = logging.getLogger(__name__)
@@ -178,24 +179,25 @@ def write_fsl_timing_file(
 
 
 def write_rest_timing_file(
-    last_event_end: float,
+    timing_data,  # TimingData object
     output_path: Path,
-    rest_duration: float = 400000.0
+    min_rest_duration: float = 0.01
 ) -> Path:
     """
-    Write the rest period timing file.
-    
-    This captures everything after the last task event.
-    
+    Write the rest period timing file with all inter-trial intervals.
+
+    Calculates rest periods as the gaps between consecutive trials
+    (between end of one trial and start of the next).
+
     Parameters
     ----------
-    last_event_end : float
-        End time of the last task event
+    timing_data : TimingData
+        Timing data object with sorted trials list
     output_path : Path
         Full path for output file
-    rest_duration : float
-        Duration of rest period (default: very large number)
-        
+    min_rest_duration : float
+        Minimum duration to include as a rest period (default: 0.01s)
+
     Returns
     -------
     Path
@@ -203,12 +205,36 @@ def write_rest_timing_file(
     """
     output_path = Path(output_path)
     ensure_directory(output_path.parent)
-    
+
+    # Get trials sorted by start time
+    trials = sorted(timing_data.trials, key=lambda t: t.start)
+
+    rest_intervals = []
+
+    # Calculate gaps between consecutive trials
+    for i in range(len(trials) - 1):
+        current_trial_end = trials[i].end
+        next_trial_start = trials[i + 1].start
+
+        gap_duration = next_trial_start - current_trial_end
+
+        # Only include if there's actually a gap
+        if gap_duration >= min_rest_duration:
+            rest_intervals.append({
+                'start': current_trial_end,
+                'duration': gap_duration
+            })
+
     with open(output_path, 'w') as f:
-        row = format_fsl_timing_row(last_event_end, rest_duration, 1.0)
-        f.write(row + "\n")
-    
-    logger.info(f"Wrote rest timing to {output_path}")
+        if rest_intervals:
+            for interval in rest_intervals:
+                row = format_fsl_timing_row(interval['start'], interval['duration'], 1.0)
+                f.write(row + "\n")
+        else:
+            # No rest intervals found - write placeholder
+            f.write("0 0 0\n")
+
+    logger.info(f"Wrote {len(rest_intervals)} rest intervals to {output_path}")
     return output_path
 
 
@@ -271,7 +297,7 @@ def write_all_fsl_timing_files(
         rest_filename = "rest.txt"
     
     saved_files['rest'] = write_rest_timing_file(
-        timing_data.last_event_end,
+        timing_data,
         trial_numbers_dir / rest_filename
     )
     
@@ -286,6 +312,177 @@ def write_all_fsl_timing_files(
     saved_files.update(labeled_files)
     
     return saved_files
+
+
+def write_labeled_trial_files_by_preference(
+    timing_data,  # TimingData object
+    output_dir: Path,
+    env_preferences: Dict[str, str],
+    run_suffix: Optional[str] = None
+) -> Tuple[Dict[str, Path], List[str]]:
+    """
+    Write semantically labeled FSL timing files separated by probe preference.
+
+    Only includes trials from COMPLETED environments (those with probe trials)
+    that have a matching preference entry.
+
+    Creates files like:
+    - explore_place.txt, explore_response.txt
+    - cond1_place.txt, cond1_response.txt
+    - etc.
+
+    Parameters
+    ----------
+    timing_data : TimingData
+        Timing data object
+    output_dir : Path
+        Directory for labeled trial files (will create labeled_trials_bypref subfolder)
+    env_preferences : Dict[str, str]
+        Mapping of environment name to preference ("place" or "response")
+    run_suffix : Optional[str]
+        Run identifier
+
+    Returns
+    -------
+    Tuple[Dict[str, Path], List[str]]
+        - Dictionary mapping label to saved path
+        - List of environments missing preference data (for error reporting)
+    """
+    from collections import defaultdict
+
+    output_dir = Path(output_dir)
+    bypref_dir = ensure_directory(output_dir / "labeled_trials_bypref")
+
+    # Group trials by environment
+    env_trials = defaultdict(list)
+    for trial in timing_data.trials:
+        env_trials[trial.environment].append(trial)
+
+    # Sort trials within each environment by trial_num
+    for env in env_trials:
+        env_trials[env].sort(key=lambda t: t.trial_num)
+
+    # Identify completed environments (last trial is probe)
+    completed_envs = {}
+    incomplete_envs = []
+
+    for env, trials in env_trials.items():
+        if trials and trials[-1].trial_type == 'p':
+            completed_envs[env] = trials
+        else:
+            incomplete_envs.append(env)
+
+    if incomplete_envs:
+        logger.warning(
+            f"Excluding {len(incomplete_envs)} incomplete environments from labeled_trials_bypref: "
+            f"{incomplete_envs}"
+        )
+
+    # Track environments missing preference data
+    missing_pref_envs = []
+
+    # Build labeled trial collections separated by preference
+    # Keys: 'explore_place', 'explore_response', 'cond1_place', etc.
+    labeled_trials = defaultdict(list)
+
+    for env, trials in completed_envs.items():
+        # Look up preference for this environment
+        preference = env_preferences.get(env)
+
+        if preference is None:
+            logger.warning(
+                f"Environment '{env}' has no preference data - skipping for bypref output"
+            )
+            missing_pref_envs.append(env)
+            continue
+
+        max_num = len(trials)  # Since trial_num is 1-indexed and sequential
+
+        for trial in trials:
+            num = trial.trial_num
+
+            # Determine base label based on position
+            if num == 1:
+                base_label = 'explore'
+            elif num == max_num:
+                base_label = 'probe'
+            elif num == max_num - 1:
+                base_label = 'preprobe'
+            elif num == max_num - 2:
+                base_label = 'cond3'
+            elif num == max_num - 3:
+                base_label = 'cond2'
+            elif num == max_num - 4:
+                if num != 1:
+                    base_label = 'cond1'
+                else:
+                    base_label = 'explore'
+            else:
+                # Trials between explore and cond1 - not included
+                continue
+
+            # Add preference suffix
+            full_label = f"{base_label}_{preference}"
+            labeled_trials[full_label].append(trial)
+
+    # Write labeled files
+    saved_files = {}
+
+    label_order = ['explore', 'cond1', 'cond2', 'cond3', 'preprobe', 'probe']
+    pref_order = ['place', 'response']
+
+    for base_label in label_order:
+        for pref in pref_order:
+            full_label = f"{base_label}_{pref}"
+            trials = labeled_trials.get(full_label, [])
+
+            if not trials:
+                continue
+
+            if run_suffix:
+                filename = f"{full_label}_{run_suffix}.txt"
+            else:
+                filename = f"{full_label}.txt"
+
+            trial_dicts = [{'start': t.start, 'duration': t.duration} for t in trials]
+
+            saved_files[f'bypref_{full_label}'] = write_fsl_timing_file(
+                trial_dicts,
+                bypref_dir / filename
+            )
+
+    # Create empty placeholder files for missing preference types
+    # Ensure all trial types have both place and response files
+    for base_label in label_order:
+        for pref in pref_order:
+            full_label = f"{base_label}_{pref}"
+            if f'bypref_{full_label}' not in saved_files:
+                # This label/preference combo is missing - create empty placeholder
+                if run_suffix:
+                    filename = f"{full_label}_{run_suffix}.txt"
+                else:
+                    filename = f"{full_label}.txt"
+
+                output_path = bypref_dir / filename
+                with open(output_path, 'w') as f:
+                    f.write("0 0 0\n")
+
+                logger.info(f"Created empty placeholder: {output_path}")
+                saved_files[f'bypref_{full_label}'] = output_path
+
+    # Also write rest file to labeled_trials_bypref
+    if timing_data.trials:
+        if run_suffix:
+            rest_filename = f"rest_{run_suffix}.txt"
+        else:
+            rest_filename = "rest.txt"
+
+        saved_files['bypref_rest'] = write_rest_timing_file(
+            timing_data,
+            bypref_dir / rest_filename
+        )
+
+    return saved_files, missing_pref_envs
 
 
 def write_labeled_trial_files(
@@ -406,14 +603,14 @@ def write_labeled_trial_files(
         )
     
     # Also copy rest file to labeled_trials
-    if timing_data.last_event_end > 0:
+    if timing_data.trials:
         if run_suffix:
             rest_filename = f"rest_{run_suffix}.txt"
         else:
             rest_filename = "rest.txt"
-        
+
         saved_files['labeled_rest'] = write_rest_timing_file(
-            timing_data.last_event_end,
+            timing_data,
             output_dir / rest_filename
         )
     
@@ -424,11 +621,13 @@ class ProcessingReport:
     """
     Collects and saves a summary of processing results.
     """
-    
+
     def __init__(self):
         self.subjects: List[Dict] = []
         self.errors: List[Dict] = []
-    
+        self.preference_errors: List[Dict] = []
+        self.timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+
     def add_subject(
         self,
         subject_id: str,
@@ -447,31 +646,68 @@ class ProcessingReport:
             'n_environments': n_environments,
             'output_dir': str(output_dir)
         })
-    
+
     def add_error(self, folder: str, error: str):
         """Record a processing error."""
         self.errors.append({
             'folder': folder,
             'error': error
         })
-    
+
+    def add_preference_error(
+        self,
+        subject_id: str,
+        error_type: str,
+        details: str
+    ):
+        """
+        Record a preference-related error.
+
+        Parameters
+        ----------
+        subject_id : str
+            Subject identifier
+        error_type : str
+            Type of error: "missing_file" or "missing_environment"
+        details : str
+            Additional details about the error
+        """
+        self.preference_errors.append({
+            'subject_id': subject_id,
+            'error_type': error_type,
+            'details': details
+        })
+
     def save(self, output_path: Path) -> Path:
         """Save report to CSV files."""
         output_path = Path(output_path)
         ensure_directory(output_path)
-        
+
         # Save subjects summary
         if self.subjects:
             subjects_df = pd.DataFrame(self.subjects)
             subjects_df.to_csv(output_path / 'processing_summary.csv', index=False)
-        
-        # Save errors
+
+        # Save errors to logs subdirectory
+        logs_path = output_path / 'logs'
+        logs_path.mkdir(parents=True, exist_ok=True)
+
         if self.errors:
             errors_df = pd.DataFrame(self.errors)
-            errors_df.to_csv(output_path / 'processing_errors.csv', index=False)
-        
+            errors_df.to_csv(logs_path / f'create_timing_errors_{self.timestamp}.csv', index=False)
+
+        # Save preference errors
+        if self.preference_errors:
+            pref_errors_df = pd.DataFrame(self.preference_errors)
+            pref_errors_df.to_csv(logs_path / f'run_preference_errors_{self.timestamp}.csv', index=False)
+
         return output_path
-    
+
+    @property
+    def has_preference_errors(self) -> bool:
+        """Check if there are any preference-related errors."""
+        return len(self.preference_errors) > 0
+
     def print_summary(self):
         """Print a summary to console."""
         print(f"\n{'='*50}")
@@ -484,6 +720,29 @@ class ProcessingReport:
             print("\nErrors:")
             for err in self.errors:
                 print(f"  - {err['folder']}: {err['error']}")
+
+        # Print preference errors prominently
+        if self.preference_errors:
+            print(f"\n{'='*50}")
+            print("PREFERENCE ERRORS - ACTION REQUIRED")
+            print(f"{'='*50}")
+            print(f"Found {len(self.preference_errors)} preference-related issue(s).")
+            print("These must be resolved and the script re-run to generate")
+            print("complete labeled_trials_bypref output.\n")
+
+            # Group by error type for clearer output
+            missing_files = [e for e in self.preference_errors if e['error_type'] == 'missing_file']
+            missing_envs = [e for e in self.preference_errors if e['error_type'] == 'missing_environment']
+
+            if missing_files:
+                print("Missing preferences files:")
+                for err in missing_files:
+                    print(f"  - {err['subject_id']}: {err['details']}")
+
+            if missing_envs:
+                print("\nEnvironments missing preference data:")
+                for err in missing_envs:
+                    print(f"  - {err['subject_id']}: {err['details']}")
 
 
 def save_outcome_measures(
