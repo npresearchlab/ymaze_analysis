@@ -152,8 +152,18 @@ data/
 ├── NAV067/
 │   ├── coordinates_NAV067.csv
 │   └── preferences_NAV067.csv
+├── _excluded/                    ← Ignored (starts with '_')
+│   └── NAV999/
 └── ...
 ```
+
+### Excluding Subjects
+
+To exclude subjects from processing, place them in a folder starting with `_` (e.g., `_excluded`, `_archive`, `_bad_data`). The pipeline automatically skips:
+- Any folder whose name starts with `_`
+- Any files inside folders starting with `_`
+
+This is useful for temporarily removing problematic data without deleting it.
 
 ### File Naming Convention
 

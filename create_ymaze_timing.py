@@ -414,18 +414,8 @@ def run_pipeline(
 
     # Process each subject
     for subject_folder in subjects:
-        # Extract participant number from folder name
-        participant_num, subject_id = extract_participant_number(
-            subject_folder.name,
-            prefix=subject_prefix
-        )
-
-        if subject_id is None:
-            logger.warning(
-                f"Could not extract participant number from '{subject_folder.name}', skipping"
-            )
-            report.add_error(subject_folder.name, "Could not extract participant number")
-            continue
+        # Use folder name directly as subject ID
+        subject_id = subject_folder.name
 
         logger.info(f"\n{'='*50}")
         logger.info(f"Processing {subject_folder.name} → {subject_id}")

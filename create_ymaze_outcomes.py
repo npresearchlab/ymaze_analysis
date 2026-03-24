@@ -390,14 +390,8 @@ def run_from_coordinates(
     all_outcomes = []
 
     for subject_folder in subjects:
-        participant_num, subject_id = extract_participant_number(
-            subject_folder.name,
-            prefix=subject_prefix
-        )
-
-        if subject_id is None:
-            logger.warning(f"Could not extract participant number from '{subject_folder.name}', skipping")
-            continue
+        # Use folder name directly as subject ID
+        subject_id = subject_folder.name
 
         coord_files = find_all_coordinate_files(subject_folder)
 

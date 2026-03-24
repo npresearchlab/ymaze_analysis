@@ -534,7 +534,8 @@ def discover_subjects(data_dir: Path) -> List[Path]:
     """
     Discover all subject directories in a data folder.
 
-    Filters out hidden directories (starting with '.').
+    Filters out hidden directories (starting with '.') and
+    excluded directories (starting with '_', e.g., '_excluded').
 
     Parameters
     ----------
@@ -553,10 +554,33 @@ def discover_subjects(data_dir: Path) -> List[Path]:
 
     subjects = [
         d for d in data_dir.iterdir()
-        if d.is_dir() and not d.name.startswith('.')
+        if d.is_dir() and not d.name.startswith('.') and not d.name.startswith('_')
     ]
 
     return sorted(subjects)
+
+
+def _is_in_excluded_directory(file_path: Path, base_dir: Path) -> bool:
+    """
+    Check if a file is inside a directory starting with '_' (e.g., '_excluded').
+
+    Parameters
+    ----------
+    file_path : Path
+        Path to the file to check
+    base_dir : Path
+        Base directory to calculate relative path from
+
+    Returns
+    -------
+    bool
+        True if file is in an excluded directory
+    """
+    try:
+        relative = file_path.relative_to(base_dir)
+        return any(part.startswith('_') for part in relative.parts[:-1])
+    except ValueError:
+        return False
 
 
 def find_all_preference_files(data_dir: Path) -> List[Path]:
@@ -564,6 +588,7 @@ def find_all_preference_files(data_dir: Path) -> List[Path]:
     Recursively find all preference files in a directory.
 
     Searches for CSV files containing "Preference" (case-insensitive) in the filename.
+    Excludes files in directories starting with '_' (e.g., '_excluded').
 
     Matches files like:
     - preferences_BNC21.csv
@@ -595,10 +620,11 @@ def find_all_preference_files(data_dir: Path) -> List[Path]:
     preference_files = list(data_dir.rglob("*Preference*.csv"))
     preference_files.extend(data_dir.rglob("*preference*.csv"))
 
-    # Remove duplicates and sort
+    # Remove duplicates, filter out excluded directories, and sort
     unique_files = list(set(preference_files))
+    filtered_files = [f for f in unique_files if not _is_in_excluded_directory(f, data_dir)]
 
-    return sorted(unique_files)
+    return sorted(filtered_files)
 
 
 def find_matching_preference_file(
