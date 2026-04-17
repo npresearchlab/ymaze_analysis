@@ -21,9 +21,18 @@ The timing script processes coordinate data to:
 
 ## Installation
 
+This pipeline uses the shared lab virtual environment `yb-nav`. Activate it before running any scripts:
+
 ```bash
-# Install dependencies
-pip install pandas numpy matplotlib
+source ~/.venvs/yb-nav/bin/activate
+```
+
+To deactivate when done: `deactivate`
+
+If the environment doesn't exist yet, create it by running the setup script at `/Volumes/BorichLab/YB/tools/setup-venv/setup_env.sh`:
+
+```bash
+bash /Volumes/BorichLab/YB/tools/setup-venv/setup_env.sh
 ```
 
 ## Quick Start
