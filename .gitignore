@@ -7,7 +7,6 @@
 
 # specific project folders
 /_archive
-/post
 
 # Python cache folders
 __pycache__/
