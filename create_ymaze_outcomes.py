@@ -240,6 +240,15 @@ def calculate_outcomes_from_dataframe(
         if n_environments > 0 else 0.0
     )
 
+    # Trials-to-criterion: average trials only across environments that actually
+    # reached criterion (has_probe=True). Avoids inflation/deflation from
+    # incomplete environments (e.g. timed-out attempts).
+    complete_envs = [e for e in env_outcomes if e.has_probe]
+    avg_np_per_complete_env = (
+        float(np.mean([e.n_np_trials for e in complete_envs]))
+        if complete_envs else 0.0
+    )
+
     avg_env_duration = (
         np.mean([e.total_time for e in env_outcomes])
         if env_outcomes else 0.0
@@ -264,6 +273,7 @@ def calculate_outcomes_from_dataframe(
         total_np_trials=total_np_trials,
         total_probe_trials=total_probe_trials,
         avg_np_per_environment=avg_np_per_env,
+        avg_np_per_complete_environment=avg_np_per_complete_env,
         avg_env_duration=avg_env_duration,
         avg_np_duration=avg_np_duration,
         avg_probe_duration=avg_probe_duration

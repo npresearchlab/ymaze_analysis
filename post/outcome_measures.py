@@ -78,6 +78,7 @@ class TaskOutcome:
     total_np_trials: int
     total_probe_trials: int
     avg_np_per_environment: float
+    avg_np_per_complete_environment: float  # Mean trials-to-criterion across envs that reached probe
     avg_env_duration: float
     avg_np_duration: float
     avg_probe_duration: Optional[float]  # None if no probes
@@ -93,6 +94,7 @@ class TaskOutcome:
             'total_np_trials': self.total_np_trials,
             'total_probe_trials': self.total_probe_trials,
             'avg_np_per_environment': self.avg_np_per_environment,
+            'avg_np_per_complete_environment': self.avg_np_per_complete_environment,
             'avg_env_duration': self.avg_env_duration,
             'avg_np_duration': self.avg_np_duration,
             'avg_probe_duration': self.avg_probe_duration

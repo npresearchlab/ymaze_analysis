@@ -367,7 +367,8 @@ One row per subject/run:
 | `total_time` | Total task time |
 | `total_np_trials` | Total non-probe trials across all environments |
 | `total_probe_trials` | Total probe trials |
-| `avg_np_per_environment` | Average non-probe trials per environment |
+| `avg_np_per_environment` | Average non-probe trials per environment (all started envs, including incomplete) |
+| `avg_np_per_complete_environment` | Average non-probe trials per environment, restricted to envs that reached the probe (trials-to-criterion) |
 | `avg_env_duration` | Average environment duration |
 | `avg_np_duration` | Average non-probe trial duration (across all) |
 | `avg_probe_duration` | Average probe trial duration (across all) |
