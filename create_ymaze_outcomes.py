@@ -59,6 +59,9 @@ from post.outcome_measures import (
 )
 
 
+from data_io.loaders import is_rawdata_dir, find_rawdata_runs
+
+
 def setup_logging(verbose: bool = False, log_file: Optional[Path] = None):
     """Configure logging for the script."""
     level = logging.DEBUG if verbose else logging.INFO
@@ -390,8 +393,12 @@ def run_from_coordinates(
 
     config = PipelineConfig()
 
-    # Discover subjects
-    subjects = discover_subjects(data_dir)
+    # Discover subjects (nav_study rawdata layout: sub-<ID>/ses-<session>/ymaze/)
+    rawdata = is_rawdata_dir(data_dir)
+    if rawdata:
+        subjects = sorted(d for d in Path(data_dir).glob('sub-*') if d.is_dir())
+    else:
+        subjects = discover_subjects(data_dir)
     logger.info(f"Found {len(subjects)} subject folders")
 
     if not subjects:
@@ -401,9 +408,12 @@ def run_from_coordinates(
 
     for subject_folder in subjects:
         # Use folder name directly as subject ID
-        subject_id = subject_folder.name
+        subject_id = subject_folder.name[4:] if rawdata else subject_folder.name  # sub-NAV066 -> NAV066
 
-        coord_files = find_all_coordinate_files(subject_folder)
+        if rawdata:
+            coord_files = [(f, suf) for f, suf, _ in find_rawdata_runs(subject_folder)]
+        else:
+            coord_files = find_all_coordinate_files(subject_folder)
 
         if not coord_files:
             logger.warning(f"No coordinate files found in {subject_folder.name}")
