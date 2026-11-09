@@ -314,6 +314,67 @@ def write_all_fsl_timing_files(
     return saved_files
 
 
+OTHER_TRIALS_LABEL = 'other_trials'
+MIN_TRIAL_DURATION = 1.0  # seconds; end-of-log fragments are ~0.05 s, real trials are >= ~7 s
+
+
+def label_environment_trials(trials: List, is_complete: bool) -> List[Tuple[str, object]]:
+    """
+    Assign a condition label to every trial in one environment.
+
+    Labels count backwards from the probe, so they are only defined when the
+    environment reached the probe:
+
+    Completed environment (last trial is the probe):
+    - trial 1               -> explore
+    - last                  -> probe
+    - last - 1              -> preprobe
+    - last - 2              -> cond3
+    - last - 3              -> cond2
+    - last - 4              -> cond1 (unless it is trial 1, which stays explore)
+    - anything in between   -> other_trials
+
+    Incomplete environment (session ended before the probe):
+    - trial 1               -> explore (defined by position, not by the probe)
+    - all other trials      -> other_trials
+
+    Trials shorter than MIN_TRIAL_DURATION are dropped (not returned).
+
+    Parameters
+    ----------
+    trials : list of Trial
+        Trials of a single environment, sorted by trial_num
+    is_complete : bool
+        True if the environment's last trial is the probe
+
+    Returns
+    -------
+    list of (label, trial) tuples
+    """
+    labeled = []
+    n = len(trials)  # trial_num is 1-indexed and sequential within an environment
+    from_end = {n: 'probe', n - 1: 'preprobe', n - 2: 'cond3', n - 3: 'cond2', n - 4: 'cond1'}
+
+    for trial in trials:
+        if trial.duration < MIN_TRIAL_DURATION:
+            logger.info(
+                f"Dropping log fragment {trial.environment} #{trial.trial_num} "
+                f"({trial.duration:.3f}s)"
+            )
+            continue
+
+        num = trial.trial_num
+        if num == 1:
+            label = 'explore'
+        elif is_complete and num in from_end:
+            label = from_end[num]
+        else:
+            label = OTHER_TRIALS_LABEL
+        labeled.append((label, trial))
+
+    return labeled
+
+
 def write_labeled_trial_files_by_preference(
     timing_data,  # TimingData object
     output_dir: Path,
@@ -374,8 +435,9 @@ def write_labeled_trial_files_by_preference(
 
     if incomplete_envs:
         logger.warning(
-            f"Excluding {len(incomplete_envs)} incomplete environments from labeled_trials_bypref: "
-            f"{incomplete_envs}"
+            f"{len(incomplete_envs)} incomplete environments (no probe) in labeled_trials_bypref: "
+            f"{incomplete_envs}. Preference is defined by the probe, so all of their trials "
+            f"go to {OTHER_TRIALS_LABEL}."
         )
 
     # Track environments missing preference data
@@ -383,6 +445,7 @@ def write_labeled_trial_files_by_preference(
 
     # Build labeled trial collections separated by preference
     # Keys: 'explore_place', 'explore_response', 'cond1_place', etc.
+    # Nuisance trials are collected without a preference suffix.
     labeled_trials = defaultdict(list)
 
     for env, trials in completed_envs.items():
@@ -396,34 +459,16 @@ def write_labeled_trial_files_by_preference(
             missing_pref_envs.append(env)
             continue
 
-        max_num = len(trials)  # Since trial_num is 1-indexed and sequential
-
-        for trial in trials:
-            num = trial.trial_num
-
-            # Determine base label based on position
-            if num == 1:
-                base_label = 'explore'
-            elif num == max_num:
-                base_label = 'probe'
-            elif num == max_num - 1:
-                base_label = 'preprobe'
-            elif num == max_num - 2:
-                base_label = 'cond3'
-            elif num == max_num - 3:
-                base_label = 'cond2'
-            elif num == max_num - 4:
-                if num != 1:
-                    base_label = 'cond1'
-                else:
-                    base_label = 'explore'
+        for base_label, trial in label_environment_trials(trials, is_complete=True):
+            if base_label == OTHER_TRIALS_LABEL:
+                labeled_trials[OTHER_TRIALS_LABEL].append(trial)
             else:
-                # Trials between explore and cond1 - not included
-                continue
+                labeled_trials[f"{base_label}_{preference}"].append(trial)
 
-            # Add preference suffix
-            full_label = f"{base_label}_{preference}"
-            labeled_trials[full_label].append(trial)
+    # Incomplete environments have no probe, hence no preference
+    for env in incomplete_envs:
+        for _, trial in label_environment_trials(env_trials[env], is_complete=False):
+            labeled_trials[OTHER_TRIALS_LABEL].append(trial)
 
     # Write labeled files
     saved_files = {}
@@ -470,6 +515,16 @@ def write_labeled_trial_files_by_preference(
                 logger.info(f"Created empty placeholder: {output_path}")
                 saved_files[f'bypref_{full_label}'] = output_path
 
+    # Nuisance trials: written only if present (no placeholder), so subjects
+    # without them simply have no other_trials EV
+    other = labeled_trials.get(OTHER_TRIALS_LABEL, [])
+    if other:
+        filename = f"{OTHER_TRIALS_LABEL}_{run_suffix}.txt" if run_suffix else f"{OTHER_TRIALS_LABEL}.txt"
+        saved_files[f'bypref_{OTHER_TRIALS_LABEL}'] = write_fsl_timing_file(
+            [{'start': t.start, 'duration': t.duration} for t in sorted(other, key=lambda t: t.start)],
+            bypref_dir / filename
+        )
+
     # Also write rest file to labeled_trials_bypref
     if timing_data.trials:
         if run_suffix:
@@ -493,16 +548,18 @@ def write_labeled_trial_files(
     """
     Write semantically labeled FSL timing files.
     
-    Only includes trials from COMPLETED environments (those with probe trials).
-    
-    Labeling scheme (based on trial position relative to probe):
-    - trial_1 → explore.txt (first trial)
+    Every real trial gets a label (see label_environment_trials), so that no
+    task time is left in the FSL implicit baseline:
+    - trial_1 → explore.txt (first trial, completed or incomplete environment)
     - max_num → probe.txt (last trial, must be 'p' type)
     - max_num - 1 → preprobe.txt
     - max_num - 2 → cond3.txt
     - max_num - 3 → cond2.txt
-    - max_num - 4 → cond1.txt (unless this is trial_1, then skip)
-    
+    - max_num - 4 → cond1.txt (unless this is trial_1, which stays explore)
+    - all other trials (between explore and cond1, and non-first trials of
+      incomplete environments) → other_trials.txt (written only if any exist)
+    - log fragments shorter than MIN_TRIAL_DURATION are dropped
+
     Parameters
     ----------
     timing_data : TimingData
@@ -542,47 +599,23 @@ def write_labeled_trial_files(
     
     if incomplete_envs:
         logger.warning(
-            f"Excluding {len(incomplete_envs)} incomplete environments from labeled_trials: "
-            f"{incomplete_envs}"
+            f"{len(incomplete_envs)} incomplete environments (no probe): {incomplete_envs}. "
+            f"Their first trial is labeled explore; the rest go to {OTHER_TRIALS_LABEL}."
         )
-    
+
     # Build labeled trial collections
-    # Keys: 'explore', 'cond1', 'cond2', 'cond3', 'preprobe', 'probe'
+    # Keys: 'explore', 'cond1', 'cond2', 'cond3', 'preprobe', 'probe', 'other_trials'
     labeled_trials = defaultdict(list)
-    
-    for env, trials in completed_envs.items():
-        max_num = len(trials)  # Since trial_num is 1-indexed and sequential
-        
-        for trial in trials:
-            num = trial.trial_num
-            
-            # Determine label based on position
-            if num == 1:
-                label = 'explore'
-            elif num == max_num:
-                label = 'probe'
-            elif num == max_num - 1:
-                label = 'preprobe'
-            elif num == max_num - 2:
-                label = 'cond3'
-            elif num == max_num - 3:
-                label = 'cond2'
-            elif num == max_num - 4:
-                # Only label as cond1 if it's not trial_1
-                if num != 1:
-                    label = 'cond1'
-                else:
-                    label = 'explore'  # Already handled above, but defensive
-            else:
-                # Trials between explore and cond1 - not included in labeled files
-                continue
-            
+
+    for env, trials in env_trials.items():
+        is_complete = env in completed_envs
+        for label, trial in label_environment_trials(trials, is_complete):
             labeled_trials[label].append(trial)
-    
+
     # Write labeled files
     saved_files = {}
-    
-    label_order = ['explore', 'cond1', 'cond2', 'cond3', 'preprobe', 'probe']
+
+    label_order = ['explore', 'cond1', 'cond2', 'cond3', 'preprobe', 'probe', OTHER_TRIALS_LABEL]
     
     for label in label_order:
         trials = labeled_trials.get(label, [])
