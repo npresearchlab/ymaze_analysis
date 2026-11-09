@@ -117,6 +117,7 @@ from processing import (
     extract_timing
 )
 
+from data_io.loaders import is_rawdata_dir, find_rawdata_runs
 from visualization import (
     create_trajectory_plot,
     save_trajectory_plot
@@ -405,7 +406,13 @@ def run_pipeline(
     report = ProcessingReport()
 
     # Discover subjects
-    subjects = discover_subjects(config.paths.data_dir)
+    rawdata = is_rawdata_dir(config.paths.data_dir)
+    if rawdata:
+        # nav_study rawdata: sub-<ID>/ses-<session>/ymaze/ (session says scanner vs computer)
+        subjects = sorted(d for d in Path(config.paths.data_dir).glob('sub-*') if d.is_dir())
+        logger.info(f"Reading nav_study rawdata layout from {config.paths.data_dir}")
+    else:
+        subjects = discover_subjects(config.paths.data_dir)
     logger.info(f"Found {len(subjects)} subject folders to process")
 
     if not subjects:
@@ -415,14 +422,17 @@ def run_pipeline(
     # Process each subject
     for subject_folder in subjects:
         # Use folder name directly as subject ID
-        subject_id = subject_folder.name
+        subject_id = subject_folder.name[4:] if rawdata else subject_folder.name  # sub-NAV066 -> NAV066
 
         logger.info(f"\n{'='*50}")
         logger.info(f"Processing {subject_folder.name} → {subject_id}")
         logger.info(f"{'='*50}")
 
         # Find all coordinate files in this subject's folder
-        coord_files = find_all_coordinate_files(subject_folder)
+        if rawdata:
+            coord_files = find_rawdata_runs(subject_folder)            # (file, run suffix, folder with its preferences)
+        else:
+            coord_files = [(f, suf, subject_folder) for f, suf in find_all_coordinate_files(subject_folder)]
 
         if not coord_files:
             logger.warning(f"No coordinate files found in {subject_folder.name}")
@@ -432,14 +442,14 @@ def run_pipeline(
         logger.info(f"Found {len(coord_files)} coordinate file(s)")
 
         # Process each coordinate file
-        for coord_file, run_suffix in coord_files:
+        for coord_file, run_suffix, pref_folder in coord_files:
             try:
                 results = process_subject(
                     coord_file=coord_file,
                     output_dir=config.paths.output_dir,
                     subject_id=subject_id,
                     config=config,
-                    subject_folder=subject_folder,
+                    subject_folder=pref_folder,
                     run_suffix=run_suffix,
                     save_intermediate=save_intermediate,
                     save_plots=save_plots

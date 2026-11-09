@@ -40,7 +40,46 @@ def clean_column_names(df: pd.DataFrame) -> pd.DataFrame:
     """
     df = df.copy()
     df.columns = df.columns.str.strip()
+    # nav_study rawdata files use snake_case column names; map them back to the
+    # names the rest of this pipeline expects (the Unity program's original names).
+    cols = set(df.columns)
+    if 'preference' in cols:          # rawdata preferences file
+        df = df.rename(columns=RAWDATA_PREFERENCE_COLUMNS)
+    elif 'cumulative_time' in cols:   # rawdata coordinates file
+        df = df.rename(columns=RAWDATA_COORDINATE_COLUMNS)
     return df
+
+
+# Column names in nav_study/03_data/rawdata -> names used in this pipeline
+RAWDATA_COORDINATE_COLUMNS = {'environment': 'Environment', 'cumulative_time': 'Cummulative_Time',
+                              'x': 'X', 'z': 'Z', 'rotation': 'Rotation'}
+RAWDATA_PREFERENCE_COLUMNS = {'participant_id': 'ID', 'environment': 'MazeName', 'preference': 'Preference'}
+# rawdata session folder -> run suffix used for output folders (NAV066/S, NAV066/C)
+RAWDATA_SESSION_RUN = {'ses-mri': 'S', 'ses-beh': 'C', 'ses-y1': 'Y1'}
+
+
+def is_rawdata_dir(data_dir: Path) -> bool:
+    """True if data_dir is nav_study's rawdata folder (sub-*/ses-*/ymaze/ layout)."""
+    data_dir = Path(data_dir)
+    return any(data_dir.glob('sub-*/ses-*/ymaze/*_task-ymaze_coordinates.csv'))
+
+
+def find_rawdata_runs(subject_dir: Path, sessions=None):
+    """
+    Y-maze runs of one participant in nav_study rawdata.
+
+    Returns a list of (coordinates_file, run_suffix, ymaze_folder): run_suffix is 'S' (scanner,
+    ses-mri), 'C' (testing computer, ses-beh) or 'Y1' (year-1 visit); ymaze_folder holds the
+    matching preferences file. The session folder says which run it is; file names are not parsed.
+    """
+    runs = []
+    for ses, suffix in RAWDATA_SESSION_RUN.items():
+        if sessions and ses not in sessions:
+            continue
+        folder = Path(subject_dir) / ses / 'ymaze'
+        for f in sorted(folder.glob('*_task-ymaze_coordinates.csv')):
+            runs.append((f, suffix, folder))
+    return runs
 
 
 def fix_transition_labels(
