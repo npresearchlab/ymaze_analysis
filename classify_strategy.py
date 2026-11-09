@@ -22,6 +22,7 @@ Rules (from post/preference_aggregation.classify_preference, shared with run_pre
   majority:      allocentric if >= 50% Place, else egocentric   (a 5/5 tie counts as allocentric)
   ego_presence:  allocentric only if 100% Place
   ego_exclusive: egocentric only if 0% Place
+Minimum: runs with fewer than MIN_ENVIRONMENTS finished environments get NA labels (labelled = no).
 Inclusion: participants.tsv value 1 = included; ? = undecided, included for now (pending = yes);
 anything else = not included. Exclusions are decided ONLY in 02_participants/exclusions.tsv.
 
@@ -34,6 +35,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from post.preference_aggregation import classify_preference
 
+MIN_ENVIRONMENTS = 3  # runs with fewer finished environments get no strategy label (NA). Proposed 2026-11-09, to review with advisor (01_methods/analysis_decisions.md #2)
 RUN_TYPE = {'ses-beh': 'computer', 'ses-y1': 'computer', 'ses-mri': 'scanner'}
 INCL_COL = {'computer': 'incl_ymaze_computer', 'scanner': 'incl_ymaze_scanner'}
 EXCL_CODES = {'computer': ('ymaze_computer', 'all_behavior'), 'scanner': ('ymaze_scanner',)}
@@ -55,6 +57,8 @@ def write_tsv(p, cols, rows):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--study-root', type=Path, default=Path(__file__).resolve().parents[2])
+    ap.add_argument('--min-environments', type=int, default=MIN_ENVIRONMENTS,
+                    help=f'minimum finished environments for a label (default {MIN_ENVIRONMENTS}); use 0 or 10 for sensitivity checks')
     a = ap.parse_args()
     root = a.study_root
     raw = root / '03_data' / 'rawdata'
@@ -93,7 +97,8 @@ def main():
                'included': included, 'decision_pending': 'yes' if status == '?' else 'no',
                'participants_tsv_value': status or 'NA',
                'exclusion_reason': reason(pid, run_type) if included == 'no' or status == '?' else ''}
-        if n:
+        row['labelled'] = 'yes' if n and n >= a.min_environments else 'no'
+        if row['labelled'] == 'yes':
             c = classify_preference(100 * n_place / n)
             short = 'allo' if c.majority == 'allocentric' else 'ego'
             row.update(majority=c.majority, ego_presence=c.ego_presence, ego_exclusive=c.ego_exclusive,
@@ -128,6 +133,9 @@ def main():
     crow = [{'run_type': k[0], 'session': k[1], 'age_group': k[2], 'majority': k[3], 'n': v} for k, v in sorted(cnt.items())]
     write_tsv(out / 'strategy_counts.tsv', ['run_type', 'session', 'age_group', 'majority', 'n'], crow)
 
+    short = [f"{r['participant_id']} {r['session']} ({r['n_environments']})" for r in rows if r['included'] == 'yes' and r['labelled'] == 'no']
+    if short:
+        print(f'Not labelled (fewer than {a.min_environments} environments):', ', '.join(short))
     print(f'{len(rows)} runs ({sum(r["included"] == "yes" for r in rows)} included) -> {out}/strategy_by_run.tsv')
     for k in crow:
         print(f"  {k['run_type']:8s} {k['session']:7s} {k['age_group']:3s} {k['majority']:11s} {k['n']}")
