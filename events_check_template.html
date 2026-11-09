@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Y-maze events check: staged vs current</title>
+<style>
+.viz-root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface-1: #fcfcfb;
+  --text-primary: #0b0b0b; --text-secondary: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
+  --same: #c3c2b7;            /* unchanged: recessive neutral */
+  --new: #2a78d6;             /* slot 1 blue */
+  --short: #eb6834;           /* slot 2 orange */
+  --removed: #1baf7a;         /* slot 3 aqua */
+  --gap: #52514e;
+  --flag-bg: #fdf0e9;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) .viz-root {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface-1: #1a1a19;
+    --text-primary: #f0efec; --text-secondary: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+    --same: #52514e; --new: #3987e5; --short: #d95926; --removed: #199e70;
+    --gap: #c3c2b7; --flag-bg: #3a2418;
+  }
+}
+:root[data-theme="dark"] .viz-root {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface-1: #1a1a19;
+  --text-primary: #f0efec; --text-secondary: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+  --same: #52514e; --new: #3987e5; --short: #d95926; --removed: #199e70;
+  --gap: #c3c2b7; --flag-bg: #3a2418;
+}
+body { margin: 0; }
+.viz-root { background: var(--page); color: var(--text-primary); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 24px 32px 64px; min-height: 100vh; box-sizing: border-box; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+h2 { font-size: 16px; margin: 32px 0 4px; }
+p.note { color: var(--text-secondary); margin: 0 0 12px; max-width: 980px; }
+.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+.legend { display: flex; gap: 20px; flex-wrap: wrap; color: var(--text-secondary); font-size: 13px; margin: 8px 0 12px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 18px; height: 10px; border-radius: 2px; display: inline-block; }
+.controls { display: flex; gap: 8px; align-items: center; margin: 8px 0 12px; }
+button, select { font: inherit; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface-1); color: var(--text-primary); cursor: pointer; }
+table { border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+th, td { padding: 4px 10px; text-align: right; border-bottom: 1px solid var(--grid); }
+th { color: var(--text-secondary); font-weight: 600; position: sticky; top: 0; background: var(--surface-1); }
+td:first-child, th:first-child { text-align: left; }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: var(--grid); }
+tr.sel { outline: 2px solid var(--new); outline-offset: -2px; }
+td.flag { background: var(--flag-bg); font-weight: 600; }
+.ok { color: var(--muted); }
+#tip { position: fixed; pointer-events: none; background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.15); display: none; z-index: 10; font-variant-numeric: tabular-nums; }
+svg text { fill: var(--text-secondary); font-size: 12px; }
+svg .tick { fill: var(--muted); font-size: 11px; }
+.scroll { max-height: 420px; overflow: auto; }
+details summary { cursor: pointer; color: var(--text-secondary); margin-top: 12px; }
+</style>
+</head>
+<body>
+<div class="viz-root">
+<h1>Y-maze events check: staged (new) vs current (in bids_data)</h1>
+<p class="note">Each bar is one event in the <b>new</b> staged events.tsv, colored by how it differs from the current file. What you should see: mostly gray (unchanged), blue only on <b>other_trials</b>, <b>post_task</b> and a few <b>explore</b> rows, orange/green only right at the scan end, and the "Unlabeled: now" lane nearly empty (just the 5&nbsp;s gap before post_task, plus tiny rounding slivers).</p>
+<div class="legend" id="legend"></div>
+
+<h2>All subjects (task events only; click a row to open it below)</h2>
+<p class="note">Thin dark line under each row = time that was <b>unlabeled before</b> (counted as baseline in the old model). Vertical tick = end of scan.</p>
+<div class="card"><svg id="overview" width="100%"></svg></div>
+
+<h2>One subject, all event types</h2>
+<div class="controls">
+  <button id="prev" aria-label="Previous subject">&larr;</button>
+  <select id="pick" aria-label="Subject"></select>
+  <button id="next" aria-label="Next subject">&rarr;</button>
+  <span id="detailsum" style="color:var(--text-secondary)"></span>
+</div>
+<div class="card"><svg id="detail" width="100%"></svg>
+<details><summary>Event table for this subject</summary><div class="scroll"><table id="evtable"></table></div></details>
+</div>
+
+<h2>Summary table</h2>
+<p class="note">Highlighted cells are worth a look (not necessarily wrong): cut-off events, long post_task, or any unlabeled gap over 5.1&nbsp;s.</p>
+<div class="card scroll" style="max-height:none"><table id="sumtable"></table></div>
+</div>
+<div id="tip"></div>
+
+<script>
+const DATA = /*DATA*/null;
+const S = DATA.subs, LANES = DATA.lanes;
+const STATUS = {same: ['Unchanged', 'var(--same)'], new: ['New in this version', 'var(--new)'],
+                short: ['Shortened at scan end', 'var(--short)'], removed: ['Removed (started after scan end, or log fragment)', 'var(--removed)']};
+const NS = 'http://www.w3.org/2000/svg';
+const el = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent && parent.appendChild(e); return e; };
+const tip = document.getElementById('tip');
+const fmt = x => (+x).toFixed(2);
+function showTip(ev, html) { tip.innerHTML = html; tip.style.display = 'block'; tip.style.left = (ev.clientX + 14) + 'px'; tip.style.top = (ev.clientY + 14) + 'px'; }
+function hideTip() { tip.style.display = 'none'; }
+function evTip(e) {
+  let h = `<b>${e.t}</b> &middot; ${STATUS[e.s][0]}<br>onset ${fmt(e.on)} s &middot; duration ${fmt(e.du)} s &middot; end ${fmt(e.on + e.du)} s`;
+  if (e.s === 'short') h += `<br>was ${fmt(e.old_du)} s`;
+  return h;
+}
+
+// legend
+const lg = document.getElementById('legend');
+for (const k in STATUS) lg.insertAdjacentHTML('beforeend', `<span><i class="sw" style="background:${STATUS[k][1]}${k==='removed'?';background:none;border:2px dashed var(--removed);box-sizing:border-box':''}"></i>${STATUS[k][0]}</span>`);
+lg.insertAdjacentHTML('beforeend', `<span><i class="sw" style="background:repeating-linear-gradient(45deg,var(--gap) 0 2px,transparent 2px 5px)"></i>Unlabeled time (counts as baseline)</span>`);
+lg.insertAdjacentHTML('beforeend', `<span><i class="sw" style="width:2px;height:14px;background:var(--text-primary)"></i>End of scan</span>`);
+
+const XMAX = Math.ceil(Math.max(...S.map(s => s.end)) / 60) * 60;
+function axis(svg, x0, x1, y, h) {
+  for (let t = 0; t <= XMAX; t += 60) {
+    const x = x0 + (x1 - x0) * t / XMAX;
+    el('line', {x1: x, x2: x, y1: y, y2: y + h, stroke: 'var(--grid)', 'stroke-width': 1}, svg);
+    if (t % 120 === 0) { const tx = el('text', {x, y: y + h + 14, 'text-anchor': 'middle', class: 'tick'}, svg); tx.textContent = t + ' s'; }
+  }
+}
+function bar(svg, e, x0, x1, y, h) {
+  const sx = t => x0 + (x1 - x0) * t / XMAX;
+  const w = Math.max(1.5, sx(e.on + e.du) - sx(e.on));
+  const attrs = {x: sx(e.on), y, width: w, height: h, rx: 2};
+  if (e.s === 'removed') Object.assign(attrs, {fill: 'none', stroke: 'var(--removed)', 'stroke-width': 1.5, 'stroke-dasharray': '3 2'});
+  else Object.assign(attrs, {fill: STATUS[e.s][1]});
+  const r = el('rect', attrs, svg);
+  // invisible larger hit target
+  const hit = el('rect', {x: sx(e.on) - 2, y: y - 3, width: w + 4, height: h + 6, fill: 'transparent'}, svg);
+  hit.addEventListener('mousemove', ev => showTip(ev, evTip(e))); hit.addEventListener('mouseleave', hideTip);
+  return r;
+}
+function gapBar(svg, g, x0, x1, y, h, label) {
+  const sx = t => x0 + (x1 - x0) * t / XMAX;
+  const w = Math.max(1.5, sx(g[0] + g[1]) - sx(g[0]));
+  el('rect', {x: sx(g[0]), y, width: w, height: h, fill: 'url(#hatch)'}, svg);
+  const hit = el('rect', {x: sx(g[0]) - 2, y: y - 3, width: w + 4, height: h + 6, fill: 'transparent'}, svg);
+  hit.addEventListener('mousemove', ev => showTip(ev, `<b>${label}</b><br>${fmt(g[0])} &ndash; ${fmt(g[0] + g[1])} s (${fmt(g[1])} s)`));
+  hit.addEventListener('mouseleave', hideTip);
+}
+function defs(svg) {
+  const d = el('defs', {}, svg);
+  const p = el('pattern', {id: 'hatch', width: 5, height: 5, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)'}, d);
+  el('rect', {width: 2, height: 5, fill: 'var(--gap)'}, p);
+}
+
+// overview
+let current = 0;
+function drawOverview() {
+  const svg = document.getElementById('overview'); svg.innerHTML = ''; defs(svg);
+  const W = svg.clientWidth || 1100, L = 70, R = W - 16, ROW = 20;
+  const H = S.length * ROW + 30; svg.setAttribute('height', H);
+  axis(svg, L, R, 0, S.length * ROW);
+  S.forEach((s, i) => {
+    const y = i * ROW;
+    const lab = el('text', {x: L - 8, y: y + 11, 'text-anchor': 'end', style: i === current ? 'font-weight:700;fill:var(--text-primary)' : ''}, svg); lab.textContent = s.sub;
+    const ev = s.events.filter(e => e.t !== 'rest').concat(s.removed.filter(e => e.t !== 'rest'));
+    ev.sort((a, b) => (a.s === 'same') - (b.s === 'same')).reverse();
+    for (const e of ev) bar(svg, e, L, R, y + 3, 10);
+    for (const g of s.gaps_old) gapBar(svg, g, L, R, y + 15, 3, 'Unlabeled before');
+    const xe = L + (R - L) * s.end / XMAX;
+    el('line', {x1: xe, x2: xe, y1: y + 1, y2: y + 18, stroke: 'var(--text-primary)', 'stroke-width': 2}, svg);
+    const row = el('rect', {x: 0, y, width: L - 4, height: ROW, fill: 'transparent', style: 'cursor:pointer'}, svg);
+    row.addEventListener('click', () => select(i));
+  });
+}
+
+// detail
+function drawDetail() {
+  const s = S[current];
+  const svg = document.getElementById('detail'); svg.innerHTML = ''; defs(svg);
+  const W = svg.clientWidth || 1100, L = 150, R = W - 16, LH = 26;
+  const lanes = LANES.concat(['Unlabeled: before', 'Unlabeled: now']);
+  const H = lanes.length * LH + 30; svg.setAttribute('height', H);
+  axis(svg, L, R, 0, lanes.length * LH);
+  lanes.forEach((ln, i) => {
+    const y = i * LH;
+    const t = el('text', {x: L - 10, y: y + 17, 'text-anchor': 'end'}, svg); t.textContent = ln;
+    el('line', {x1: L, x2: R, y1: y + LH, y2: y + LH, stroke: 'var(--grid)'}, svg);
+  });
+  const laneY = t => LANES.indexOf(t) * LH + 6;
+  for (const e of s.events) bar(svg, e, L, R, laneY(e.t), 14);
+  for (const e of s.removed) bar(svg, e, L, R, laneY(e.t), 14);
+  for (const g of s.gaps_old) gapBar(svg, g, L, R, LANES.length * LH + 6, 14, 'Unlabeled before (baseline in old model)');
+  for (const g of s.gaps_new) gapBar(svg, g, L, R, (LANES.length + 1) * LH + 6, 14, 'Unlabeled now (baseline)');
+  const xe = L + (R - L) * s.end / XMAX;
+  el('line', {x1: xe, x2: xe, y1: 0, y2: lanes.length * LH, stroke: 'var(--text-primary)', 'stroke-width': 2}, svg);
+  const et = el('text', {x: xe + 4, y: 12, style: 'fill:var(--text-primary)'}, svg); et.textContent = `scan end ${s.end} s`;
+  if (xe + 90 > R) { et.setAttribute('x', xe - 4); et.setAttribute('text-anchor', 'end'); }
+  document.getElementById('detailsum').textContent =
+    `${s.events.length} events · ${s.n_new} new · ${s.n_short} shortened · ${s.n_removed} removed · unlabeled ${s.unl_old} s → ${s.unl_new} s`;
+  // table
+  const rows = s.events.concat(s.removed).sort((a, b) => a.on - b.on);
+  document.getElementById('evtable').innerHTML = '<thead><tr><th>trial_type</th><th>onset</th><th>duration</th><th>end</th><th>status</th></tr></thead><tbody>' +
+    rows.map(e => `<tr><td>${e.t}</td><td>${fmt(e.on)}</td><td>${fmt(e.du)}</td><td>${fmt(e.on + e.du)}</td><td style="text-align:left">${STATUS[e.s][0]}${e.s === 'short' ? ' (was ' + fmt(e.old_du) + ')' : ''}</td></tr>`).join('') + '</tbody>';
+}
+
+// summary table
+function drawTable() {
+  const cols = [['Subject', s => s.sub], ['Scan (s)', s => s.end.toFixed(0)], ['Events', s => s.events.length],
+    ['New', s => s.n_new], ['other_trials', s => s.n_other], ['post_task (s)', s => s.post_task.toFixed(0), s => s.post_task >= 20],
+    ['Shortened', s => s.n_short, s => s.n_short > 0], ['Removed', s => s.n_removed, s => s.n_removed > 0],
+    ['Unlabeled before (s)', s => s.unl_old.toFixed(0)], ['Unlabeled now (s)', s => s.unl_new.toFixed(1)],
+    ['Longest gap now (s)', s => s.max_gap_new.toFixed(2), s => s.max_gap_new > 5.1]];
+  document.getElementById('sumtable').innerHTML = '<thead><tr>' + cols.map(c => `<th>${c[0]}</th>`).join('') + '</tr></thead><tbody>' +
+    S.map((s, i) => `<tr data-i="${i}" class="${i === current ? 'sel' : ''}">` + cols.map(c => `<td class="${c[2] && c[2](s) ? 'flag' : ''}">${c[1](s)}</td>`).join('') + '</tr>').join('') + '</tbody>';
+  document.querySelectorAll('#sumtable tbody tr').forEach(tr => tr.addEventListener('click', () => select(+tr.dataset.i)));
+}
+
+const pick = document.getElementById('pick');
+S.forEach((s, i) => pick.insertAdjacentHTML('beforeend', `<option value="${i}">${s.sub}</option>`));
+pick.addEventListener('change', () => select(+pick.value));
+document.getElementById('prev').onclick = () => select((current - 1 + S.length) % S.length);
+document.getElementById('next').onclick = () => select((current + 1) % S.length);
+function select(i) { current = i; pick.value = i; drawOverview(); drawDetail(); drawTable(); document.getElementById('pick').scrollIntoView({block: 'nearest', behavior: 'smooth'}); }
+function drawAll() { drawOverview(); drawDetail(); drawTable(); }
+window.addEventListener('resize', drawAll);
+drawAll();
+</script>
+</body>
+</html>
