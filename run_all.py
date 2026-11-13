@@ -1,66 +1,52 @@
 #!/usr/bin/env python3
-"""Run all three Y-maze analysis steps in sequence."""
+"""
+Run the Y-maze pipeline for nav_study, in order:
 
+  1. strategy   classify_strategy.py      rawdata/ymaze_computer + ymaze_scanner
+                                          -> 03_data/derivatives/ymaze/strategy_*.tsv
+  2. outcomes   create_ymaze_outcomes.py  rawdata/ymaze_computer + ymaze_scanner
+                                          -> 03_data/derivatives/ymaze/outcomes/
+  3. events     make_ymaze_events.py      rawdata/ymaze_scanner + rawdata/mri (scan length)
+                                          -> 05_analyses/mri/ymaze_events/output/
+
+    python run_all.py                       # all three
+    python run_all.py --only events         # one step (strategy, outcomes, events)
+    python run_all.py --mri <folder>        # where the task fMRI DICOMs are (step 3)
+
+Every step reads only the main rawdata folders: folders starting with "_" (_excluded,
+_archive) are never read. Placing the event files where MR.Flow reads them is NOT done here:
+check 05_analyses/mri/ymaze_events/ first, then run sort_ymaze_events.py yourself.
+"""
 import argparse
 import subprocess
 import sys
 from pathlib import Path
 
+HERE = Path(__file__).resolve().parent
+STEPS = ['strategy', 'outcomes', 'events']
+
 
 def main():
-    parser = argparse.ArgumentParser(description="Run the full Y-maze analysis pipeline")
-    parser.add_argument("--data-dir", "-d", default="../data", help="Path to data directory (default: ../data)")
-    parser.add_argument("--output-dir", "-o", default="../output", help="Path to output directory (default: ../output)")
-    parser.add_argument("--subject-prefix", "-p", default="sub", help="Prefix for subject IDs (default: sub)")
-    parser.add_argument("--no-plots", action="store_true", help="Skip trajectory visualizations")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
-    args = parser.parse_args()
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--only', nargs='+', choices=STEPS, help='run only these steps')
+    ap.add_argument('--mri', help='task fMRI DICOM folder for step 3 (default: 03_data/rawdata/mri)')
+    ap.add_argument('--no-plots', action='store_true', help='step 3: skip the trajectory plots')
+    a = ap.parse_args()
 
-    script_dir = Path(__file__).parent
-    common = []
-    if args.verbose:
-        common.append("--verbose")
-
-    steps = [
-        {
-            "name": "Step 1: Generate FSL timing files",
-            "cmd": [
-                sys.executable, str(script_dir / "create_ymaze_timing.py"),
-                "--data-dir", args.data_dir,
-                "--output-dir", args.output_dir,
-                "--subject-prefix", args.subject_prefix,
-            ] + (["--no-plots"] if args.no_plots else []) + common,
-        },
-        {
-            "name": "Step 2: Calculate behavioral outcomes",
-            "cmd": [
-                sys.executable, str(script_dir / "create_ymaze_outcomes.py"),
-                "--output-dir", args.output_dir,
-            ] + common,
-        },
-        {
-            "name": "Step 3: Aggregate preferences",
-            "cmd": [
-                sys.executable, str(script_dir / "run_preference_analysis.py"),
-                "--data-dir", args.data_dir,
-                "--output-dir", args.output_dir,
-            ] + common,
-        },
-    ]
-
-    for step in steps:
-        print(f"\n{'='*60}")
-        print(f"  {step['name']}")
-        print(f"{'='*60}\n")
-        result = subprocess.run(step["cmd"])
-        if result.returncode != 0:
-            print(f"\nERROR: {step['name']} failed (exit code {result.returncode})")
-            sys.exit(result.returncode)
-
-    print(f"\n{'='*60}")
-    print("  All steps completed successfully!")
-    print(f"{'='*60}\n")
+    cmds = {
+        'strategy': [sys.executable, str(HERE / 'classify_strategy.py')],
+        'outcomes': [sys.executable, str(HERE / 'create_ymaze_outcomes.py')],
+        'events':   [sys.executable, str(HERE / 'make_ymaze_events.py')]
+                    + (['--mri', a.mri] if a.mri else []) + (['--no-plots'] if a.no_plots else []),
+    }
+    for step in a.only or STEPS:
+        print(f"\n{'=' * 60}\n  {step}: {Path(cmds[step][1]).name}\n{'=' * 60}\n", flush=True)
+        r = subprocess.run(cmds[step], cwd=HERE)
+        if r.returncode != 0:
+            sys.exit(f'\nERROR: step "{step}" failed (exit code {r.returncode}); later steps not run.')
+    print(f"\n{'=' * 60}\n  Done. Event files are NOT placed for MR.Flow: check them, then run "
+          f"sort_ymaze_events.py.\n{'=' * 60}")
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

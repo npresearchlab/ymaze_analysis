@@ -7,14 +7,16 @@ Replaces the old classify_c_subjects.py, classify_s_subjects.py and compare_cs_c
 letter in the file name and kept their own hard-coded exclusion list.
 
 Reads (all from the nav_study folder this repo sits in, ../../):
-  03_data/rawdata/sub-*/ses-*/ymaze/*_task-ymaze_preferences.csv   one file per run
-      ses-beh = testing computer, ses-mri = scanner, ses-y1 = year-1 visit (computer)
+  03_data/rawdata/ymaze_computer/sub-*/sub-*_ses-*_task-ymaze_preferences.csv   ses-beh, ses-y1 (year-1 visit)
+  03_data/rawdata/ymaze_scanner/sub-*/sub-*_ses-mri_task-ymaze_preferences.csv   scanner
+      one file per run. Only the main folders: people in _excluded/ (not used for that measure,
+      sorted by build_rawdata.py from participants.tsv) are not read, so they are not in the tables.
   02_participants/demographics.tsv    age_group
   02_participants/participants.tsv    incl_ymaze_computer / incl_ymaze_scanner (built from exclusions.tsv)
   02_participants/exclusions.tsv      the reason, when a run is not used
 
 Writes (03_data/derivatives/ymaze/):
-  strategy_by_run.tsv               one row per run, every run (included or not)
+  strategy_by_run.tsv               one row per run in the main rawdata folders
   strategy_computer_vs_scanner.tsv  people with an included computer AND scanner run: do they match?
   strategy_counts.tsv               counts per run type x age group x majority label (included runs)
 
@@ -28,7 +30,7 @@ anything else = not included. Exclusions are decided ONLY in 02_participants/exc
 
 Usage:  python3 classify_strategy.py [--study-root /path/to/nav_study]
 """
-import sys, csv, argparse, collections
+import sys, csv, argparse, collections, re
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -76,8 +78,12 @@ def main():
         return '; '.join(f"{r['status']}: {r['reason']}" for r in rs)
 
     rows = []
-    for f in sorted(raw.glob('sub-*/ses-*/ymaze/*_task-ymaze_preferences.csv')):
-        pid, ses = f.parts[-4][4:], f.parts[-3]
+    files = sorted(f for m in ('ymaze_computer', 'ymaze_scanner')
+                   for f in (raw / m).glob('sub-*/sub-*_ses-*_task-ymaze_preferences.csv'))
+    if not files:
+        raise SystemExit(f'No Y-maze preferences files in {raw}/ymaze_computer or ymaze_scanner')
+    for f in files:
+        pid, ses = f.parent.name[4:], re.search(r'_(ses-[A-Za-z0-9]+)_', f.name).group(1)
         run_type = RUN_TYPE.get(ses)
         if not run_type:
             print(f'WARNING: unknown session {ses} for {pid}; skipped')

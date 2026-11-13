@@ -408,7 +408,8 @@ def run_pipeline(
     # Discover subjects
     rawdata = is_rawdata_dir(config.paths.data_dir)
     if rawdata:
-        # nav_study rawdata: sub-<ID>/ses-<session>/ymaze/ (session says scanner vs computer)
+        # nav_study rawdata: <measure>/sub-<ID>/sub-<ID>_ses-<session>_task-ymaze_*.csv
+        # (session says scanner vs computer; _excluded/ is not a sub- folder, so never read)
         subjects = sorted(d for d in Path(config.paths.data_dir).glob('sub-*') if d.is_dir())
         logger.info(f"Reading nav_study rawdata layout from {config.paths.data_dir}")
     else:

@@ -260,7 +260,9 @@ def load_and_aggregate_preferences(data_dir: Path) -> pd.DataFrame:
         Aggregated preference data
     """
     # Find all preference files
-    preference_files = list(data_dir.rglob("*Preferences*.csv"))
+    # Skip anything inside a folder starting with "_" (_excluded, _archive, ...)
+    preference_files = [f for f in data_dir.rglob("*Preferences*.csv")
+                        if not any(part.startswith("_") for part in f.relative_to(data_dir).parts[:-1])]
 
     if not preference_files:
         logger.warning(f"No preference files found in {data_dir}")

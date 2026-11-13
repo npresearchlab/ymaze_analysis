@@ -7,6 +7,8 @@ Handles:
 - Validating data structure
 """
 
+import re
+
 import pandas as pd
 from pathlib import Path
 from typing import Optional, List, Tuple, Dict
@@ -54,31 +56,37 @@ def clean_column_names(df: pd.DataFrame) -> pd.DataFrame:
 RAWDATA_COORDINATE_COLUMNS = {'environment': 'Environment', 'cumulative_time': 'Cummulative_Time',
                               'x': 'X', 'z': 'Z', 'rotation': 'Rotation'}
 RAWDATA_PREFERENCE_COLUMNS = {'participant_id': 'ID', 'environment': 'MazeName', 'preference': 'Preference'}
-# rawdata session folder -> run suffix used for output folders (NAV066/S, NAV066/C)
+# rawdata session -> run suffix used for output folders (NAV066/S, NAV066/C)
 RAWDATA_SESSION_RUN = {'ses-mri': 'S', 'ses-beh': 'C', 'ses-y1': 'Y1'}
+# nav_study rawdata (2026-11-13): one folder per measure, e.g. 03_data/rawdata/ymaze_computer/
+# and ymaze_scanner/, holding sub-<ID>/sub-<ID>_ses-<session>_task-ymaze_{coordinates,preferences}.csv;
+# excluded people are in that folder's _excluded/, which is never read.
+RAWDATA_FILE = re.compile(r'^sub-[A-Za-z]+\d+_(ses-[A-Za-z0-9]+)_task-ymaze_(coordinates|preferences)\.csv$')
 
 
 def is_rawdata_dir(data_dir: Path) -> bool:
-    """True if data_dir is nav_study's rawdata folder (sub-*/ses-*/ymaze/ layout)."""
+    """True if data_dir is a nav_study rawdata Y-maze folder (sub-<ID>/sub-<ID>_ses-*_task-ymaze_*.csv)."""
     data_dir = Path(data_dir)
-    return any(data_dir.glob('sub-*/ses-*/ymaze/*_task-ymaze_coordinates.csv'))
+    return any(data_dir.glob('sub-*/sub-*_ses-*_task-ymaze_coordinates.csv'))
 
 
 def find_rawdata_runs(subject_dir: Path, sessions=None):
     """
     Y-maze runs of one participant in nav_study rawdata.
 
-    Returns a list of (coordinates_file, run_suffix, ymaze_folder): run_suffix is 'S' (scanner,
-    ses-mri), 'C' (testing computer, ses-beh) or 'Y1' (year-1 visit); ymaze_folder holds the
-    matching preferences file. The session folder says which run it is; file names are not parsed.
+    Returns a list of (coordinates_file, run_suffix, folder): run_suffix is 'S' (scanner,
+    ses-mri), 'C' (testing computer, ses-beh) or 'Y1' (year-1 visit), from the session in the
+    file name; folder holds the matching preferences file (find_matching_preference_file picks
+    the one with the same session).
     """
     runs = []
-    for ses, suffix in RAWDATA_SESSION_RUN.items():
-        if sessions and ses not in sessions:
+    for f in sorted(Path(subject_dir).glob('*_task-ymaze_coordinates.csv')):
+        m = RAWDATA_FILE.match(f.name)
+        if not m or m.group(1) not in RAWDATA_SESSION_RUN:
             continue
-        folder = Path(subject_dir) / ses / 'ymaze'
-        for f in sorted(folder.glob('*_task-ymaze_coordinates.csv')):
-            runs.append((f, suffix, folder))
+        if sessions and m.group(1) not in sessions:
+            continue
+        runs.append((f, RAWDATA_SESSION_RUN[m.group(1)], Path(subject_dir)))
     return runs
 
 
@@ -709,6 +717,13 @@ def find_matching_preference_file(
 
     if not preference_files:
         return None
+
+    # nav_study rawdata names: the session in the file name says which run it belongs to
+    if run_suffix:
+        for pref_file in sorted(preference_files):
+            m = RAWDATA_FILE.match(pref_file.name)
+            if m and RAWDATA_SESSION_RUN.get(m.group(1)) == run_suffix.upper():
+                return pref_file
 
     # Try to find exact match for run suffix
     for pref_file in preference_files:

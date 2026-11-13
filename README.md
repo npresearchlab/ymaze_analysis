@@ -2,6 +2,35 @@
 
 A Python pipeline for processing Y-Maze behavioral data from Unity experiments.
 
+## Running it in nav_study (start here)
+
+This copy lives in `nav_study/04_code/ymaze_analysis` and reads nav_study's rawdata directly;
+all default paths point inside nav_study. Use the `yb-nav` environment
+(`source ~/.venvs/yb-nav/bin/activate`; it needs `pydicom`, see `YB/tools/setup-venv/requirements.txt`).
+
+```
+cd nav_study/04_code/ymaze_analysis
+python run_all.py                    # steps 1-3 below
+python run_all.py --only events      # one step: strategy, outcomes or events
+```
+
+| Step | Script | Reads | Writes |
+|---|---|---|---|
+| 1 strategy | `classify_strategy.py` | `03_data/rawdata/ymaze_computer/`, `ymaze_scanner/` (preferences) | `03_data/derivatives/ymaze/strategy_*.tsv` |
+| 2 outcomes | `create_ymaze_outcomes.py` | same folders (coordinates) | `03_data/derivatives/ymaze/outcomes/` |
+| 3 events | `make_ymaze_events.py` | `03_data/rawdata/ymaze_scanner/` (logs), `03_data/rawdata/mri/` (task scan DICOMs, for the scan length) | `05_analyses/mri/ymaze_events/output/`: per participant the FSL timing files (`cond1.txt`, ..., `post_task.txt`) and a BIDS `events.tsv`; `events_log.tsv`; `timing_details/` |
+| (by hand) | `sort_ymaze_events.py` | step 3's output | copies the `.txt` files into each task scan's `events/` folder, where MR.Flow reads them. Preview by default (writes `events_check.html`); `--apply` to copy, with replaced files archived first |
+
+Rawdata layout: one folder per measure, `sub-<ID>/sub-<ID>_ses-<session>_task-ymaze_*.csv`
+(session = `ses-beh` computer, `ses-y1` year-1 visit, `ses-mri` scanner). **Folders whose name
+starts with `_` (`_excluded`, `_archive`) are never read**: people not used for a measure are
+in its `_excluded/` folder, sorted there from `02_participants/participants.tsv`. To make events
+for excluded people (only if ever needed), run step 3 on that folder with its own output:
+`python make_ymaze_events.py --input ../../03_data/rawdata/ymaze_scanner/_excluded --output ../../05_analyses/mri/ymaze_events/output/_excluded`.
+
+The rest of this README describes the original stand-alone pipeline (`./data`, `./output`
+folders). `run_preference_analysis.py` is superseded by `classify_strategy.py` for nav_study.
+
 ## Overview
 
 This pipeline provides three standalone scripts:

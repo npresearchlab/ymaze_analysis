@@ -61,6 +61,11 @@ from post.outcome_measures import (
 
 from data_io.loaders import is_rawdata_dir, find_rawdata_runs
 
+_STUDY = Path(__file__).resolve().parents[2]                   # .../nav_study
+DEFAULT_DATA_DIRS = [_STUDY / '03_data' / 'rawdata' / 'ymaze_computer',
+                     _STUDY / '03_data' / 'rawdata' / 'ymaze_scanner']
+DEFAULT_OUTPUT_DIR = _STUDY / '03_data' / 'derivatives' / 'ymaze' / 'outcomes'
+
 
 def setup_logging(verbose: bool = False, log_file: Optional[Path] = None):
     """Configure logging for the script."""
@@ -114,7 +119,9 @@ def find_labeled_final_files(output_dir: Path) -> List[Tuple[Path, str, Optional
     if not output_dir.is_dir():
         return []
 
-    files = list(output_dir.rglob("*_labeled_final.csv"))
+    # Skip anything inside a folder starting with "_" (_excluded, _archive, ...)
+    files = [f for f in output_dir.rglob("*_labeled_final.csv")
+             if not any(part.startswith("_") for part in f.relative_to(output_dir).parts[:-1])]
 
     results = []
 
@@ -393,7 +400,8 @@ def run_from_coordinates(
 
     config = PipelineConfig()
 
-    # Discover subjects (nav_study rawdata layout: sub-<ID>/ses-<session>/ymaze/)
+    # Discover subjects (nav_study rawdata: <measure>/sub-<ID>/sub-<ID>_ses-<session>_task-ymaze_*.csv;
+    # _excluded/ is not a sub- folder, so it is never read)
     rawdata = is_rawdata_dir(data_dir)
     if rawdata:
         subjects = sorted(d for d in Path(data_dir).glob('sub-*') if d.is_dir())
@@ -449,6 +457,11 @@ def run_from_coordinates(
     return all_outcomes
 
 
+def data_dirs(data_dir):
+    """--data-dir may be one folder or a list of folders."""
+    return list(data_dir) if isinstance(data_dir, (list, tuple)) else [data_dir]
+
+
 def run_outcome_calculation(
     data_dir: Optional[Path],
     output_dir: Path,
@@ -482,9 +495,11 @@ def run_outcome_calculation(
     if labeled_files:
         # Use existing labeled files
         all_outcomes = run_from_labeled_files(output_dir, labeled_files)
-    elif data_dir and data_dir.is_dir():
-        # Process from raw coordinates
-        all_outcomes = run_from_coordinates(data_dir, output_dir, subject_prefix)
+    elif data_dir and all(Path(d).is_dir() for d in data_dirs(data_dir)):
+        # Process from raw coordinates (one or more folders, e.g. ymaze_computer and ymaze_scanner)
+        all_outcomes = []
+        for d in data_dirs(data_dir):
+            all_outcomes += run_from_coordinates(Path(d), output_dir, subject_prefix)
     else:
         logger.error(
             "No labeled_final.csv files found in output directory, "
@@ -541,15 +556,16 @@ Output files:
 
     parser.add_argument(
         '--data-dir', '-d',
-        type=Path,
-        help='Path to data directory with raw coordinate files (used if no labeled_final.csv found)'
+        type=Path, nargs='+', default=DEFAULT_DATA_DIRS,
+        help='Folder(s) with raw coordinate files, used if no labeled_final.csv is found '
+             '(default: 03_data/rawdata/ymaze_computer and ymaze_scanner)'
     )
 
     parser.add_argument(
         '--output-dir', '-o',
         type=Path,
-        default=Path('./output'),
-        help='Path to output directory (default: ./output)'
+        default=DEFAULT_OUTPUT_DIR,
+        help='Path to output directory (default: 03_data/derivatives/ymaze/outcomes)'
     )
 
     parser.add_argument(
